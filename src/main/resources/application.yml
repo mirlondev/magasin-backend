@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: pos-new
+  datasource:
+    url: jdbc:postgresql://localhost:54322/pos_db
+    username: postgres
+    password: password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  jackson:
+    time-zone: Africa/Douala
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api/v1
+
+jwt:
+  secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+  expiration: 86400000 # 24 hours in milliseconds
+  refresh-expiration: 604800000 # 7 days
+
+
+logging:
+  level:
+    org.odema.posnew: DEBUG
+    org.springframework.security: DEBUG

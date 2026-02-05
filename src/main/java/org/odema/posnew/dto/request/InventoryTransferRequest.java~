@@ -1,0 +1,4 @@
+package org.odema.posnew.dto.request;
+
+public class InventoryTransferRequest {
+}
