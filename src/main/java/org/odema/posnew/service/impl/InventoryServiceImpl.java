@@ -16,6 +16,8 @@ import org.odema.posnew.repository.InventoryRepository;
 import org.odema.posnew.repository.ProductRepository;
 import org.odema.posnew.repository.StoreRepository;
 import org.odema.posnew.service.InventoryService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -204,20 +206,75 @@ public class InventoryServiceImpl implements InventoryService {
         return inventoryMapper.toResponse(savedTargetInventory);
     }
 
+    // ============ MÉTHODES PAGINÉES ============
+
     @Override
-    public List<InventoryResponse> getAllInventory() {
-        return inventoryRepository.findAll().stream()
-                .filter(Inventory::getIsActive)
-                .map(inventoryMapper::toResponse)
-                .toList();
+    public Page<InventoryResponse> getInventory(UUID storeId, Pageable pageable) {
+        Page<Inventory> page;
+
+        if (storeId != null) {
+            page = inventoryRepository.findByStore_StoreId(storeId, pageable);
+        } else {
+            page = inventoryRepository.findByIsActiveTrue(pageable);
+        }
+
+        return page.map(inventoryMapper::toResponse);
     }
 
     @Override
-    public List<InventoryResponse> getInventoryByStore(UUID storeId) {
-        return inventoryRepository.findByStore_StoreId(storeId).stream()
+    public Page<InventoryResponse> getAllInventory(Pageable pageable) {
+        return inventoryRepository.findByIsActiveTrue(pageable)
+                .map(inventoryMapper::toResponse);
+    }
+
+
+
+    @Override
+    public Page<InventoryResponse> getInventoryByProduct(UUID productId, Pageable pageable) {
+        return inventoryRepository.findByProduct_ProductId(productId, pageable)
+                .map(inventoryMapper::toResponse);
+    }
+
+    @Override
+    public Page<InventoryResponse> getLowStockInventory(Integer threshold, Pageable pageable) {
+        int actualThreshold = threshold != null ? threshold : 10;
+        return inventoryRepository.findLowStockByThreshold(actualThreshold, pageable)
+                .map(inventoryMapper::toResponse);
+    }
+
+    @Override
+    public Page<InventoryResponse> getInventoryByStatus(String status, Pageable pageable) {
+        try {
+            StockStatus stockStatus = StockStatus.valueOf(status.toUpperCase());
+            return inventoryRepository.findByStockStatusAndIsActiveTrue(stockStatus, pageable)
+                    .map(inventoryMapper::toResponse);
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Statut de stock invalide: " + status);
+        }
+    }
+
+    // ============ MÉTHODES NON PAGINÉES (pour compatibilité) ============
+
+    @Override
+    public List<InventoryResponse> getAllInventory() {
+        try{
+        return inventoryRepository.findAll().stream()
                 .filter(Inventory::getIsActive)
-                .map(inventoryMapper::toResponse)
-                .toList();
+                .map(inventoryMapper::toResponse).toList();
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("pas d'inventaire disponible");
+        }
+        }
+
+    @Override
+    public Page<InventoryResponse> getInventoryByStore(UUID storeId, Pageable pageable) {
+        try{
+            return inventoryRepository.findByStore_StoreId(storeId, pageable)
+                    .map(inventoryMapper::toResponse);
+        } catch (IllegalArgumentException e) {
+           throw new NotFoundException("Inventaire  non disponible dans ce Magasin");
+        }
+
     }
 
     @Override
@@ -249,7 +306,7 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     @Override
-    public InventorySummaryResponse getInventorySummary(UUID storeId) {
+    public InventorySummaryResponse getInventorySummary(UUID storeId ) {
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new NotFoundException("Store non trouvé"));
 

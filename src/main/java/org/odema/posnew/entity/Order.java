@@ -44,6 +44,7 @@ public class Order {
     private Store store;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default  // This tells Lombok's builder to use the field's default value
     private List<OrderItem> items = new ArrayList<>();
 
     @Column(nullable = false, precision = 12)
@@ -100,19 +101,53 @@ public class Order {
     private LocalDateTime cancelledAt;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default  // This tells Lombok's builder to use the field's default value
     private List<Refund> refunds = new ArrayList<>();
+
+    // Add @PrePersist to ensure defaults before saving
+    @PrePersist
+    public void initializeDefaults() {
+        if (items == null) items = new ArrayList<>();
+        if (refunds == null) refunds = new ArrayList<>();
+        if (subtotal == null) subtotal = BigDecimal.ZERO;
+        if (taxAmount == null) taxAmount = BigDecimal.ZERO;
+        if (discountAmount == null) discountAmount = BigDecimal.ZERO;
+        if (totalAmount == null) totalAmount = BigDecimal.ZERO;
+        if (amountPaid == null) amountPaid = BigDecimal.ZERO;
+        if (changeAmount == null) changeAmount = BigDecimal.ZERO;
+        if (taxRate == null) taxRate = BigDecimal.ZERO;
+        if (isTaxable == null) isTaxable = true;
+    }
 
     // Méthodes utilitaires
     public void calculateTotals() {
+        // Ensure items list is initialized
+        if (this.items == null) {
+            this.items = new ArrayList<>();
+        }
+
+        // Initialize to ZERO if null
+        if (this.discountAmount == null) {
+            this.discountAmount = BigDecimal.ZERO;
+        }
+        if (this.taxRate == null) {
+            this.taxRate = BigDecimal.ZERO;
+        }
+        if (this.amountPaid == null) {
+            this.amountPaid = BigDecimal.ZERO;
+        }
+
         // Calculer le sous-total
         this.subtotal = items.stream()
                 .map(OrderItem::getFinalPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // Calculer la taxe
-        if (isTaxable && taxRate != null) {
+        if (Boolean.TRUE.equals(isTaxable) && taxRate != null && taxRate.compareTo(BigDecimal.ZERO) > 0) {
             this.taxAmount = subtotal.multiply(taxRate)
-                    .divide(BigDecimal.valueOf(100));
+                    .divide(BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
+        } else {
+            this.taxAmount = BigDecimal.ZERO;
         }
 
         // Calculer le total
@@ -124,19 +159,27 @@ public class Order {
             if (this.changeAmount.compareTo(BigDecimal.ZERO) < 0) {
                 this.changeAmount = BigDecimal.ZERO;
             }
+        } else {
+            this.changeAmount = BigDecimal.ZERO;
         }
     }
 
     public void addItem(OrderItem item) {
+        // Ensure items list is initialized
+        if (this.items == null) {
+            this.items = new ArrayList<>();
+        }
         item.setOrder(this);
         this.items.add(item);
         calculateTotals();
     }
 
     public void removeItem(OrderItem item) {
-        this.items.remove(item);
-        item.setOrder(null);
-        calculateTotals();
+        if (this.items != null) {
+            this.items.remove(item);
+            item.setOrder(null);
+            calculateTotals();
+        }
     }
 
     public void markAsPaid() {
@@ -152,9 +195,28 @@ public class Order {
     }
 
     public boolean isFullyRefunded() {
+        if (this.refunds == null || this.refunds.isEmpty()) {
+            return false;
+        }
         BigDecimal refundedAmount = refunds.stream()
                 .map(Refund::getRefundAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         return refundedAmount.compareTo(totalAmount) >= 0;
+    }
+
+    // Getter for items that ensures it's never null
+    public List<OrderItem> getItems() {
+        if (this.items == null) {
+            this.items = new ArrayList<>();
+        }
+        return this.items;
+    }
+
+    // Getter for refunds that ensures it's never null
+    public List<Refund> getRefunds() {
+        if (this.refunds == null) {
+            this.refunds = new ArrayList<>();
+        }
+        return this.refunds;
     }
 }

@@ -8,10 +8,14 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.odema.posnew.dto.request.ProductRequest;
 import org.odema.posnew.dto.response.ApiResponse;
+import org.odema.posnew.dto.response.InventoryResponse;
+import org.odema.posnew.dto.response.PaginatedResponse;
 import org.odema.posnew.dto.response.ProductResponse;
 import org.odema.posnew.exception.NotFoundException;
 import org.odema.posnew.exception.UnauthorizedException;
 import org.odema.posnew.service.ProductService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -53,13 +57,12 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER', 'EMPLOYEE')")
     @Operation(summary = "Obtenir tous les produits")
-    public ResponseEntity<ApiResponse<List<ProductResponse>>> getAllProducts() throws UnauthorizedException {
-        List<ProductResponse> responses = productService.getAllProducts();
-        return ResponseEntity.ok(ApiResponse.success(responses));
+    public  ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getAllProducts( Pageable pageable) throws UnauthorizedException {
+        Page<ProductResponse> responses = productService.getAllProducts(pageable);
+        return  ResponseEntity.ok(ApiResponse.success(PaginatedResponse.from(responses)));
     }
 
     @GetMapping("/category/{categoryId}")

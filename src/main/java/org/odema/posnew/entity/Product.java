@@ -34,6 +34,10 @@ public class Product {
     @Column(nullable = false, precision = 10)
     private BigDecimal price;
 
+    @Column(name = "is_active", nullable = false)
+
+    private Boolean isActive = true;
+
     /**
      * DEPRECATED: Do not use this field directly!
      * Use getTotalStock() instead, which calculates from Inventory.

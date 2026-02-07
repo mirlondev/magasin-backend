@@ -1,4 +1,5 @@
 package org.odema.posnew.service.impl;
+
 import lombok.RequiredArgsConstructor;
 import org.odema.posnew.dto.request.ProductRequest;
 import org.odema.posnew.dto.response.ProductResponse;
@@ -13,6 +14,7 @@ import org.odema.posnew.mapper.ProductMapper;
 import org.odema.posnew.repository.CategoryRepository;
 import org.odema.posnew.repository.ProductRepository;
 import org.odema.posnew.service.ProductService;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,7 +77,6 @@ public class ProductServiceImpl implements ProductService {
         if (request.name() != null) product.setName(request.name());
         if (request.description() != null) product.setDescription(request.description());
         if (request.price() != null) product.setPrice(request.price());
-//        if (request.quantity() != null) product.(request.quantity());
         if (request.categoryId() != null) {
             Category category = categoryRepository.findById(request.categoryId())
                     .orElseThrow(() -> new NotFoundException("Catégorie non trouvée"));
@@ -98,9 +99,36 @@ public class ProductServiceImpl implements ProductService {
         productRepository.delete(product);
     }
 
+    // ============ MÉTHODES PAGINÉES ============
 
     @Override
-    public List<ProductResponse> getAllProducts() throws UnauthorizedException{
+    public Page<ProductResponse> getAllProducts(Pageable pageable) {
+        return productRepository.findByIsActiveTrue(pageable)
+                .map(productMapper::toResponse);
+    }
+
+    @Override
+    public Page<ProductResponse> getProductsByCategory(UUID categoryId, Pageable pageable) {
+        return productRepository.findByCategory_CategoryId(categoryId, pageable)
+                .map(productMapper::toResponse);
+    }
+
+    @Override
+    public Page<ProductResponse> searchProducts(String keyword, Pageable pageable) {
+        return productRepository.findByNameContainingIgnoreCase(keyword, pageable)
+                .map(productMapper::toResponse);
+    }
+
+    @Override
+    public Page<ProductResponse> getLowStockProducts(Pageable pageable) {
+        return productRepository.findLowStockProducts(pageable)
+                .map(productMapper::toResponse);
+    }
+
+    // ============ MÉTHODES NON PAGINÉES ============
+
+    @Override
+    public List<ProductResponse> getAllProducts() {
         return productRepository.findAll().stream()
                 .map(productMapper::toResponse)
                 .toList();
@@ -122,9 +150,9 @@ public class ProductServiceImpl implements ProductService {
                 .toList();
     }
 
+
     @Override
-    public List<ProductResponse> getLowStockProducts(Integer threshold) {
-       // int stockThreshold = threshold != null ? threshold : 10;
+    public List<ProductResponse> getLowStockProducts(Integer threshold){
         List<Product> products = productRepository.findLowStockProducts();
         return products.stream()
                 .map(productMapper::toResponse)
@@ -137,13 +165,8 @@ public class ProductServiceImpl implements ProductService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new NotFoundException("Produit non trouvé"));
 
-//        switch (operation.toLowerCase()) {
-//            case "add" -> product.increaseQuantity(quantity);
-//            case "remove" -> product.decreaseQuantity(quantity);
-//            case "set" -> product.setQuantity(quantity);
-//            default -> throw new BadRequestException("Opération invalide: utilisez 'add', 'remove' ou 'set'");
-//        }
-
+        // Note: La gestion du stock se fait dans Inventory, pas dans Product
+        // Cette méthode pourrait être supprimée ou modifiée selon votre logique métier
         Product updatedProduct = productRepository.save(product);
         return productMapper.toResponse(updatedProduct);
     }

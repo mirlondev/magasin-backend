@@ -53,6 +53,8 @@ public class ProductMapper {
                 product.getCreatedAt(),
                 product.getUpdatedAt(),
                 null, // storeId - not applicable for product
+                product.getIsActive(),
+
                 null  // storeName - not applicable for product
         );
     }
@@ -81,7 +83,10 @@ public class ProductMapper {
                 product.getCreatedAt(),
                 product.getUpdatedAt(),
                 storeId,
+                product.getIsActive(),
+
                 null // Store name would need to be fetched
+
         );
     }
 }

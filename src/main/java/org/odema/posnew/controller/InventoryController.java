@@ -11,7 +11,10 @@ import org.odema.posnew.dto.request.InventoryUpdateRequest;
 import org.odema.posnew.dto.response.ApiResponse;
 import org.odema.posnew.dto.response.InventoryResponse;
 import org.odema.posnew.dto.response.InventorySummaryResponse;
+import org.odema.posnew.dto.response.PaginatedResponse;
 import org.odema.posnew.service.InventoryService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -59,44 +62,104 @@ public class InventoryController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    // Méthode paginée principale avec filtrage
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Obtenir tous les inventaires")
+    @Operation(summary = "Obtenir tous les inventaires (paginé)")
+    public ResponseEntity<ApiResponse<PaginatedResponse<InventoryResponse>>> getInventoryPaginated(
+            @RequestParam(required = false) UUID storeId,
+            Pageable pageable) {
+        Page<InventoryResponse> page = inventoryService.getInventory(storeId, pageable);
+        return ResponseEntity.ok(ApiResponse.success(PaginatedResponse.from(page)));
+    }
+
+    // Méthode non paginée pour compatibilité
+    @GetMapping("/all")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER')")
+    @Operation(summary = "Obtenir tous les inventaires (liste complète)")
     public ResponseEntity<ApiResponse<List<InventoryResponse>>> getAllInventory() {
         List<InventoryResponse> responses = inventoryService.getAllInventory();
         return ResponseEntity.ok(ApiResponse.success(responses));
     }
 
+    // Méthode paginée par store
     @GetMapping("/store/{storeId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Obtenir les inventaires d'un store")
-    public ResponseEntity<ApiResponse<List<InventoryResponse>>> getInventoryByStore(
-            @PathVariable UUID storeId) {
-        List<InventoryResponse> responses = inventoryService.getInventoryByStore(storeId);
+    @Operation(summary = "Obtenir les inventaires d'un store (paginé)")
+    public ResponseEntity<ApiResponse<PaginatedResponse<InventoryResponse>>> getInventoryByStorePaginated(
+            @PathVariable UUID storeId,
+            Pageable pageable) {
+        Page<InventoryResponse> page = inventoryService.getInventoryByStore(storeId, pageable);
+        return ResponseEntity.ok(ApiResponse.success(PaginatedResponse.from(page)));
+    }
+
+    // Méthode non paginée par store pour compatibilité
+    @GetMapping("/store/{storeId}/list")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER')")
+    @Operation(summary = "Obtenir les inventaires d'un store (liste complète)")
+    public ResponseEntity<ApiResponse<Page<InventoryResponse>>> getInventoryByStore(
+            @PathVariable UUID storeId, Pageable pageable) {
+        Page<InventoryResponse> responses = inventoryService.getInventoryByStore(storeId, pageable);
         return ResponseEntity.ok(ApiResponse.success(responses));
     }
 
+    // Méthode paginée par produit
     @GetMapping("/product/{productId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Obtenir les inventaires d'un produit")
+    @Operation(summary = "Obtenir les inventaires d'un produit (paginé)")
+    public ResponseEntity<ApiResponse<PaginatedResponse<InventoryResponse>>> getInventoryByProductPaginated(
+            @PathVariable UUID productId,
+            Pageable pageable) {
+        Page<InventoryResponse> page = inventoryService.getInventoryByProduct(productId, pageable);
+        return ResponseEntity.ok(ApiResponse.success(PaginatedResponse.from(page)));
+    }
+
+    // Méthode non paginée par produit pour compatibilité
+    @GetMapping("/product/{productId}/list")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER')")
+    @Operation(summary = "Obtenir les inventaires d'un produit (liste complète)")
     public ResponseEntity<ApiResponse<List<InventoryResponse>>> getInventoryByProduct(
             @PathVariable UUID productId) {
         List<InventoryResponse> responses = inventoryService.getInventoryByProduct(productId);
         return ResponseEntity.ok(ApiResponse.success(responses));
     }
 
+    // Méthode paginée pour stock faible
     @GetMapping("/low-stock")
     @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER')")
-    @Operation(summary = "Obtenir les inventaires en stock faible")
+    @Operation(summary = "Obtenir les inventaires en stock faible (paginé)")
+    public ResponseEntity<ApiResponse<PaginatedResponse<InventoryResponse>>> getLowStockInventoryPaginated(
+            @RequestParam(required = false, defaultValue = "10") Integer threshold,
+            Pageable pageable) {
+        Page<InventoryResponse> page = inventoryService.getLowStockInventory(threshold, pageable);
+        return ResponseEntity.ok(ApiResponse.success(PaginatedResponse.from(page)));
+    }
+
+    // Méthode non paginée pour stock faible pour compatibilité
+    @GetMapping("/low-stock/list")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER')")
+    @Operation(summary = "Obtenir les inventaires en stock faible (liste complète)")
     public ResponseEntity<ApiResponse<List<InventoryResponse>>> getLowStockInventory(
             @RequestParam(required = false, defaultValue = "10") Integer threshold) {
         List<InventoryResponse> responses = inventoryService.getLowStockInventory(threshold);
         return ResponseEntity.ok(ApiResponse.success(responses));
     }
 
+    // Méthode paginée par statut
     @GetMapping("/status/{status}")
     @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER')")
-    @Operation(summary = "Obtenir les inventaires par statut")
+    @Operation(summary = "Obtenir les inventaires par statut (paginé)")
+    public ResponseEntity<ApiResponse<PaginatedResponse<InventoryResponse>>> getInventoryByStatusPaginated(
+            @PathVariable String status,
+            Pageable pageable) {
+        Page<InventoryResponse> page = inventoryService.getInventoryByStatus(status, pageable);
+        return ResponseEntity.ok(ApiResponse.success(PaginatedResponse.from(page)));
+    }
+
+    // Méthode non paginée par statut pour compatibilité
+    @GetMapping("/status/{status}/list")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER')")
+    @Operation(summary = "Obtenir les inventaires par statut (liste complète)")
     public ResponseEntity<ApiResponse<List<InventoryResponse>>> getInventoryByStatus(
             @PathVariable String status) {
         List<InventoryResponse> responses = inventoryService.getInventoryByStatus(status);

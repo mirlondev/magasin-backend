@@ -19,5 +19,6 @@ public record ProductResponse(
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         UUID storeId,
+        Boolean isActive ,
         String storeName
 ) {}

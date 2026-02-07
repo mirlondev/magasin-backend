@@ -1,23 +1,43 @@
 package org.odema.posnew.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import lombok.Builder;
+import lombok.Data;
 
+import java.time.LocalDateTime;
+
+@Data
+@Builder
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record ApiResponse<T>(
-        boolean success,
-        String message,
-        T data,
-        String error
-) {
+public class ApiResponse<T> {
+    private boolean success;
+    private String message;
+    private T data;
+    private LocalDateTime timestamp;
+
     public static <T> ApiResponse<T> success(T data) {
-        return new ApiResponse<>(true, "Opération réussie", data, null);
+        return ApiResponse.<T>builder()
+                .success(true)
+                .message("Operation successful")
+                .data(data)
+                .timestamp(LocalDateTime.now())
+                .build();
     }
 
     public static <T> ApiResponse<T> success(String message, T data) {
-        return new ApiResponse<>(true, message, data, null);
+        return ApiResponse.<T>builder()
+                .success(true)
+                .message(message)
+                .data(data)
+                .timestamp(LocalDateTime.now())
+                .build();
     }
 
-    public static ApiResponse<Void> error(String error) {
-        return new ApiResponse<>(false, null, null, error);
+    public static <T> ApiResponse<T> error(String message) {
+        return ApiResponse.<T>builder()
+                .success(false)
+                .message(message)
+                .timestamp(LocalDateTime.now())
+                .build();
     }
 }

@@ -8,11 +8,15 @@ import org.odema.posnew.entity.*;
 import org.odema.posnew.entity.enums.OrderStatus;
 import org.odema.posnew.entity.enums.PaymentMethod;
 import org.odema.posnew.entity.enums.PaymentStatus;
+import org.odema.posnew.entity.enums.UserRole;
 import org.odema.posnew.exception.BadRequestException;
 import org.odema.posnew.exception.NotFoundException;
 import org.odema.posnew.mapper.OrderMapper;
 import org.odema.posnew.repository.*;
 import org.odema.posnew.service.OrderService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,6 +59,12 @@ public class OrderServiceImpl implements OrderService {
         // Générer un numéro de commande unique
         String orderNumber = generateOrderNumber();
 
+        // Ensure all BigDecimal values have defaults
+        BigDecimal taxRate = request.taxRate() != null ? request.taxRate() : BigDecimal.ZERO;
+        BigDecimal discountAmount = request.discountAmount() != null ? request.discountAmount() : BigDecimal.ZERO;
+        BigDecimal amountPaid = request.amountPaid() != null ? request.amountPaid() : BigDecimal.ZERO;
+        Boolean isTaxable = request.isTaxable() != null ? request.isTaxable() : Boolean.FALSE;
+
         // Créer la commande
         Order order = Order.builder()
                 .orderNumber(orderNumber)
@@ -65,10 +75,15 @@ public class OrderServiceImpl implements OrderService {
                 .paymentStatus(PaymentStatus.PENDING)
                 .status(OrderStatus.PENDING)
                 .notes(request.notes())
-                .isTaxable(request.isTaxable() != null ? request.isTaxable() : true)
-                .taxRate(request.taxRate() != null ? request.taxRate() : BigDecimal.valueOf(0.0))
-                .discountAmount(request.discountAmount() != null ? request.discountAmount() : BigDecimal.ZERO)
-                .amountPaid(request.amountPaid() != null ? request.amountPaid() : BigDecimal.ZERO)
+                .isTaxable(isTaxable)
+                .taxRate(taxRate)
+                .discountAmount(discountAmount)
+                .amountPaid(amountPaid)
+                // Initialize all BigDecimal fields to ZERO
+                .subtotal(BigDecimal.ZERO)
+                .taxAmount(BigDecimal.ZERO)
+                .totalAmount(BigDecimal.ZERO)
+                .changeAmount(BigDecimal.ZERO)
                 .build();
 
         // Ajouter les articles
@@ -82,23 +97,44 @@ public class OrderServiceImpl implements OrderService {
                 throw new BadRequestException("Stock insuffisant pour le produit: " + product.getName());
             }
 
+            // Ensure discount has default value
+            BigDecimal itemDiscountPercentage = itemRequest.discountPercentage() != null ?
+                    itemRequest.discountPercentage() : BigDecimal.ZERO;
+
             // Créer l'article de commande
             OrderItem orderItem = OrderItem.builder()
                     .order(order)
                     .product(product)
                     .quantity(itemRequest.quantity())
                     .unitPrice(product.getPrice())
-                    .discountPercentage(itemRequest.discountPercentage() != null ?
-                            itemRequest.discountPercentage() : BigDecimal.ZERO)
+                    .discountPercentage(itemDiscountPercentage)
+                    .discountAmount(BigDecimal.ZERO) // Initialize
+                    .totalPrice(BigDecimal.ZERO) // Initialize
+                    .finalPrice(BigDecimal.ZERO) // Initialize
                     .notes(itemRequest.notes())
                     .build();
 
+            // Calculate prices for this item
             orderItem.calculatePrices();
+
+            // Add item to order
             order.addItem(orderItem);
         }
 
         // Calculer les totaux
         order.calculateTotals();
+
+        // Déterminer le statut de paiement
+        if (order.getAmountPaid() != null && order.getTotalAmount() != null) {
+            if (order.getAmountPaid().compareTo(order.getTotalAmount()) >= 0) {
+                order.setPaymentStatus(PaymentStatus.PAID);
+                order.setStatus(OrderStatus.COMPLETED);
+                order.setCompletedAt(LocalDateTime.now());
+            } else if (order.getAmountPaid().compareTo(BigDecimal.ZERO) > 0) {
+                order.setPaymentStatus(PaymentStatus.PARTIALLY_PAID);
+                order.setStatus(OrderStatus.PROCESSING);
+            }
+        }
 
         // Sauvegarder la commande
         Order savedOrder = orderRepository.save(order);
@@ -185,13 +221,18 @@ public class OrderServiceImpl implements OrderService {
                     throw new BadRequestException("Stock insuffisant pour le produit: " + product.getName());
                 }
 
+                BigDecimal itemDiscountPercentage = itemRequest.discountPercentage() != null ?
+                        itemRequest.discountPercentage() : BigDecimal.ZERO;
+
                 OrderItem orderItem = OrderItem.builder()
                         .order(order)
                         .product(product)
                         .quantity(itemRequest.quantity())
                         .unitPrice(product.getPrice())
-                        .discountPercentage(itemRequest.discountPercentage() != null ?
-                                itemRequest.discountPercentage() : BigDecimal.ZERO)
+                        .discountPercentage(itemDiscountPercentage)
+                        .discountAmount(BigDecimal.ZERO)
+                        .totalPrice(BigDecimal.ZERO)
+                        .finalPrice(BigDecimal.ZERO)
                         .notes(itemRequest.notes())
                         .build();
 
@@ -229,15 +270,17 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','CASHIER')")
     public List<OrderResponse> getAllOrders() {
         return orderRepository.findAll().stream()
                 .map(orderMapper::toResponse)
                 .toList();
     }
 
+
     @Override
     public List<OrderResponse> getOrdersByStore(UUID storeId) {
-        return orderRepository.findByStore_StoreId(storeId.toString()).stream()
+        return orderRepository.findByStore_StoreId(storeId).stream()
                 .map(orderMapper::toResponse)
                 .toList();
     }
@@ -289,13 +332,13 @@ public class OrderServiceImpl implements OrderService {
             throw new BadRequestException("La commande est déjà terminée");
         }
 
-        order.setAmountPaid(amountPaid);
+        order.setAmountPaid(amountPaid != null ? amountPaid : BigDecimal.ZERO);
         order.calculateTotals();
 
         // Vérifier si le paiement est suffisant
-        if (amountPaid.compareTo(order.getTotalAmount()) >= 0) {
+        if (order.getAmountPaid().compareTo(order.getTotalAmount()) >= 0) {
             order.markAsPaid();
-        } else {
+        } else if (order.getAmountPaid().compareTo(BigDecimal.ZERO) > 0) {
             order.setPaymentStatus(PaymentStatus.PARTIALLY_PAID);
         }
 
@@ -359,17 +402,49 @@ public class OrderServiceImpl implements OrderService {
                 .toList();
     }
 
+    @Override
+    public Page<OrderResponse> getOrders(UUID userId, Pageable pageable) {
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Utilisateur non trouvé"));
+
+        // ADMIN → tout
+        if (user.getUserRole() == UserRole.ADMIN) {
+            return orderRepository.findAll(pageable)
+                    .map(orderMapper::toResponse)
+                 ;
+        }
+
+        // STORE ADMIN → commandes du magasin
+        if (user.getUserRole() == UserRole.STORE_ADMIN) {
+            return orderRepository
+                    .findByStore_StoreId(user.getAssignedStore().getStoreId(), pageable)
+                    .map(orderMapper::toResponse);
+        }
+
+        // CASHIER → ses commandes uniquement
+        if (user.getUserRole() == UserRole.CASHIER) {
+            return orderRepository
+                    .findByCashier_UserId(user.getUserId(), pageable)
+                    .map(orderMapper::toResponse);
+        }
+
+        throw new BadRequestException("Rôle non autorisé");
+    }
+
+
     private String generateOrderNumber() {
         String prefix = "ORD";
         String timestamp = String.valueOf(System.currentTimeMillis());
         String random = String.valueOf((int) (Math.random() * 1000));
 
-        String orderNumber = prefix + timestamp.substring(timestamp.length() - 6) + random;
+        String substring = timestamp.substring(timestamp.length() - 6);
+        String orderNumber = prefix + substring + random;
 
         // Vérifier l'unicité
         while (orderRepository.existsByOrderNumber(orderNumber)) {
             random = String.valueOf((int) (Math.random() * 1000));
-            orderNumber = prefix + timestamp.substring(timestamp.length() - 6) + random;
+            orderNumber = prefix + substring + random;
         }
 
         return orderNumber;
@@ -380,7 +455,7 @@ public class OrderServiceImpl implements OrderService {
             // Pour chaque article, trouver l'inventaire dans le store de la commande
             inventoryRepository.findByProduct_ProductIdAndStore_StoreId(
                             item.getProduct().getProductId(),
-                           order.getStore().getStoreId())
+                            order.getStore().getStoreId())
                     .ifPresent(inventory -> {
                         inventory.decreaseQuantity(item.getQuantity());
                         inventoryRepository.save(inventory);
@@ -392,7 +467,7 @@ public class OrderServiceImpl implements OrderService {
         for (OrderItem item : order.getItems()) {
             inventoryRepository.findByProduct_ProductIdAndStore_StoreId(
                             item.getProduct().getProductId(),
-                          order.getStore().getStoreId())
+                            order.getStore().getStoreId())
                     .ifPresent(inventory -> {
                         inventory.increaseQuantity(item.getQuantity());
                         inventoryRepository.save(inventory);

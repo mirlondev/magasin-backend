@@ -3,6 +3,8 @@ package org.odema.posnew.repository;
 import org.odema.posnew.entity.Order;
 import org.odema.posnew.entity.enums.OrderStatus;
 import org.odema.posnew.entity.enums.PaymentStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -19,12 +21,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Optional<Order> findByOrderNumber(String orderNumber);
 
-    List<Order> findByStore_StoreId(String storeId);
+    Page<Order> findByStore_StoreId(UUID storeId, Pageable pageable);
+    List<Order> findByStore_StoreId(UUID storeId);
 
     List<Order> findByCustomer_CustomerId(UUID customerId);
 
     List<Order> findByCashier_UserId(UUID cashierId);
-
+    Page<Order> findByCashier_UserId(UUID cashierId, Pageable pageable);
     List<Order> findByStatus(OrderStatus status);
 
     List<Order> findByPaymentStatus(PaymentStatus paymentStatus);

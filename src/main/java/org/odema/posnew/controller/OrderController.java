@@ -8,8 +8,11 @@ import lombok.RequiredArgsConstructor;
 import org.odema.posnew.dto.request.OrderRequest;
 import org.odema.posnew.dto.response.ApiResponse;
 import org.odema.posnew.dto.response.OrderResponse;
+import org.odema.posnew.dto.response.PaginatedResponse;
 import org.odema.posnew.security.CustomUserDetails;
 import org.odema.posnew.service.OrderService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -56,9 +59,10 @@ public class OrderController {
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
     @Operation(summary = "Obtenir toutes les commandes")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getAllOrders() {
-        List<OrderResponse> responses = orderService.getAllOrders();
-        return ResponseEntity.ok(ApiResponse.success(responses));
+    public ResponseEntity<ApiResponse<PaginatedResponse<OrderResponse>>> getAllOrders(@AuthenticationPrincipal CustomUserDetails userDetails, Pageable pageable) {
+        UUID userId = userDetails.getUserId();
+        Page<OrderResponse> responses = orderService.getOrders(userId,pageable);
+        return ResponseEntity.ok(ApiResponse.success(PaginatedResponse.from(responses)));
     }
 
     @GetMapping("/store/{storeId}")
