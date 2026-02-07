@@ -34,29 +34,39 @@ public class ShiftReportServiceImpl implements ShiftReportService {
     @Override
     @Transactional
     public ShiftReportResponse openShift(ShiftReportRequest request, UUID cashierId) {
-        // Vérifier si le caissier a déjà un shift ouvert
+
         if (shiftReportRepository.findOpenShiftByCashier(cashierId).isPresent()) {
             throw new BadRequestException("Le caissier a déjà un shift ouvert");
         }
 
-        // Récupérer le caissier
         User cashier = userRepository.findById(cashierId)
                 .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
 
-        // Récupérer le store
         Store store = storeRepository.findById(request.storeId())
                 .orElseThrow(() -> new NotFoundException("Store non trouvé"));
 
-        // Générer un numéro de shift unique
+        BigDecimal openingBalance =
+                request.openingBalance() != null ? request.openingBalance() : BigDecimal.ZERO;
+
         String shiftNumber = generateShiftNumber();
 
-        // Créer le shift
         ShiftReport shift = ShiftReport.builder()
                 .shiftNumber(shiftNumber)
                 .cashier(cashier)
                 .store(store)
                 .startTime(LocalDateTime.now())
-                .openingBalance(request.openingBalance() != null ? request.openingBalance() : BigDecimal.ZERO)
+
+                .openingBalance(openingBalance)
+                .actualBalance(openingBalance)
+                .expectedBalance(openingBalance)
+                .closingBalance(openingBalance)
+                .discrepancy(BigDecimal.ZERO)
+
+                .totalSales(BigDecimal.ZERO)
+                .totalRefunds(BigDecimal.ZERO)
+                .netSales(BigDecimal.ZERO)
+                .totalTransactions(0)
+
                 .status(ShiftStatus.OPEN)
                 .notes(request.notes())
                 .build();
@@ -64,7 +74,6 @@ public class ShiftReportServiceImpl implements ShiftReportService {
         ShiftReport savedShift = shiftReportRepository.save(shift);
         return shiftReportMapper.toResponse(savedShift);
     }
-
     @Override
     @Transactional
     public ShiftReportResponse closeShift(UUID shiftReportId, BigDecimal closingBalance, BigDecimal actualBalance) {

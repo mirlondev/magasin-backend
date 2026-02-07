@@ -21,8 +21,15 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
 
     Optional<Product> findByBarcode(String barcode);
 
-    @Query("SELECT p FROM Product p WHERE p.quantity <= :threshold")
-    List<Product> findLowStockProducts(@Param("threshold") Integer threshold);
+    @Query("""
+        SELECT DISTINCT p
+        FROM Product p
+        JOIN p.inventories i
+        WHERE i.isActive = true
+        AND i.stockStatus = 'LOW_STOCK'
+        """)
+    List<Product> findLowStockProducts();
+
 
 //    @Query("SELECT p FROM Product p WHERE p. = true ORDER BY p.createdAt DESC")
 //    List<Product> findAllActiveProducts();

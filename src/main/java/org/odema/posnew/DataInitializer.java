@@ -459,7 +459,7 @@ public class DataInitializer implements CommandLineRunner {
                 .barcode(barcode)
                 .description(description)
                 .price(price)
-                .quantity(0) // Initial quantity - actual stock tracked in Inventory
+                //.quantity(0) // Initial quantity - actual stock tracked in Inventory
                 .category(category)
                 .imageUrl("/images/products/" + sku.toLowerCase() + ".jpg")
                 .build();

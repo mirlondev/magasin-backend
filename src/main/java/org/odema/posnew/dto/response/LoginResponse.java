@@ -2,6 +2,7 @@ package org.odema.posnew.dto.response;
 
 
 
+import org.odema.posnew.entity.enums.StoreType;
 import org.odema.posnew.entity.enums.UserRole;
 
 import java.util.Set;

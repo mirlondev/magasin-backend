@@ -75,7 +75,7 @@ public class ProductServiceImpl implements ProductService {
         if (request.name() != null) product.setName(request.name());
         if (request.description() != null) product.setDescription(request.description());
         if (request.price() != null) product.setPrice(request.price());
-        if (request.quantity() != null) product.setQuantity(request.quantity());
+//        if (request.quantity() != null) product.(request.quantity());
         if (request.categoryId() != null) {
             Category category = categoryRepository.findById(request.categoryId())
                     .orElseThrow(() -> new NotFoundException("Catégorie non trouvée"));
@@ -124,8 +124,8 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public List<ProductResponse> getLowStockProducts(Integer threshold) {
-        int stockThreshold = threshold != null ? threshold : 10;
-        List<Product> products = productRepository.findLowStockProducts(stockThreshold);
+       // int stockThreshold = threshold != null ? threshold : 10;
+        List<Product> products = productRepository.findLowStockProducts();
         return products.stream()
                 .map(productMapper::toResponse)
                 .toList();
@@ -137,12 +137,12 @@ public class ProductServiceImpl implements ProductService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new NotFoundException("Produit non trouvé"));
 
-        switch (operation.toLowerCase()) {
-            case "add" -> product.increaseQuantity(quantity);
-            case "remove" -> product.decreaseQuantity(quantity);
-            case "set" -> product.setQuantity(quantity);
-            default -> throw new BadRequestException("Opération invalide: utilisez 'add', 'remove' ou 'set'");
-        }
+//        switch (operation.toLowerCase()) {
+//            case "add" -> product.increaseQuantity(quantity);
+//            case "remove" -> product.decreaseQuantity(quantity);
+//            case "set" -> product.setQuantity(quantity);
+//            default -> throw new BadRequestException("Opération invalide: utilisez 'add', 'remove' ou 'set'");
+//        }
 
         Product updatedProduct = productRepository.save(product);
         return productMapper.toResponse(updatedProduct);

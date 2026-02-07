@@ -8,7 +8,7 @@ public record ProductRequest(
         @NotBlank(message = "Le nom du produit est obligatoire")
         @Size(min = 2, max = 200, message = "Le nom doit contenir entre 2 et 200 caractères")
         String name,
-
+//
         String description,
 
         @NotNull(message = "Le prix est obligatoire")

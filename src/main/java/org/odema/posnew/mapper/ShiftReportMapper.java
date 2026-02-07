@@ -17,7 +17,7 @@ public class ShiftReportMapper {
                 shift.getCashier() != null ? shift.getCashier().getUserId() : null,
                 shift.getCashier() != null ? shift.getCashier().getUsername() : null,
 
-                shift.getStore() != null ? java.util.UUID.fromString(String.valueOf(shift.getStore().getStoreId())) : null,
+                shift.getStore() != null ? shift.getStore().getStoreId() : null,
                 shift.getStore() != null ? shift.getStore().getName() : null,
 
                 shift.getStartTime(),

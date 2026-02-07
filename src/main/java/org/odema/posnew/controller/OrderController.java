@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.odema.posnew.dto.request.OrderRequest;
 import org.odema.posnew.dto.response.ApiResponse;
 import org.odema.posnew.dto.response.OrderResponse;
+import org.odema.posnew.security.CustomUserDetails;
 import org.odema.posnew.service.OrderService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -35,9 +36,9 @@ public class OrderController {
     @Operation(summary = "Créer une nouvelle commande")
     public ResponseEntity<ApiResponse<OrderResponse>> createOrder(
             @Valid @RequestBody OrderRequest request,
-            @AuthenticationPrincipal org.springframework.security.core.userdetails.UserDetails userDetails) {
+            @AuthenticationPrincipal CustomUserDetails userDetails) {
         // Récupérer l'ID du caissier depuis les détails de l'utilisateur
-        UUID cashierId = UUID.fromString(userDetails.getUsername()); // À adapter selon votre implémentation
+        UUID cashierId = userDetails.getUserId(); // À adapter selon votre implémentation
         OrderResponse response = orderService.createOrder(request, cashierId);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Commande créée avec succès", response));

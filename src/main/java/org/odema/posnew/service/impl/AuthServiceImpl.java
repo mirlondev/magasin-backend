@@ -59,6 +59,7 @@ public class AuthServiceImpl implements AuthService {
                 user.getEmail(),
                 user.getUserRole()
 
+
         );
     }
 

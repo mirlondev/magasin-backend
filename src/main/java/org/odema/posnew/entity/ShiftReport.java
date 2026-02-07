@@ -126,4 +126,16 @@ public class ShiftReport {
     public boolean isClosed() {
         return status == ShiftStatus.CLOSED;
     }
+    @PrePersist
+    public void initDefaults() {
+        if (actualBalance == null) actualBalance = openingBalance;
+        if (expectedBalance == null) expectedBalance = openingBalance;
+        if (closingBalance == null) closingBalance = openingBalance;
+        if (discrepancy == null) discrepancy = BigDecimal.ZERO;
+        if (totalSales == null) totalSales = BigDecimal.ZERO;
+        if (totalRefunds == null) totalRefunds = BigDecimal.ZERO;
+        if (netSales == null) netSales = BigDecimal.ZERO;
+        if (totalTransactions == null) totalTransactions = 0;
+    }
+
 }
