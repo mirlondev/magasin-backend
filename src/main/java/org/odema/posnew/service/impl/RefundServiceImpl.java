@@ -188,7 +188,7 @@ public class RefundServiceImpl implements RefundService {
 
     @Override
     public List<RefundResponse> getRefundsByStore(UUID storeId) {
-        return refundRepository.findByStore_StoreId(storeId.toString()).stream()
+        return refundRepository.findByStore_StoreId(storeId).stream()
                 .filter(Refund::getIsActive)
                 .map(refundMapper::toResponse)
                 .toList();

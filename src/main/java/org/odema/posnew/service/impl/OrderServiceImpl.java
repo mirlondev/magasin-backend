@@ -376,7 +376,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         BigDecimal total = orderRepository.getTotalSalesByStoreAndDateRange(
-                storeId.toString(), startDate, endDate);
+                storeId, startDate, endDate);
 
         return total != null ? total : BigDecimal.ZERO;
     }
@@ -389,7 +389,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         Integer count = orderRepository.getOrderCountByStoreAndDateRange(
-                storeId.toString(), startDate, endDate);
+                storeId, startDate, endDate);
 
         return count != null ? count : 0;
     }

@@ -54,6 +54,8 @@ public class Product {
 
     @Column(name = "image_url")
     private String imageUrl;
+    @Column(name = "image_filename", nullable = true)
+    private String imageFilename;
 
     @Column(length = 50)
     private String sku;
@@ -163,7 +165,16 @@ public class Product {
                 .anyMatch(Inventory::isOutOfStock);
     }
 
-
+    // Méthode pour obtenir l'URL complète de l'image
+    public String getFullImageUrl() {
+        if (imageUrl != null && !imageUrl.isEmpty()) {
+            return imageUrl;
+        }
+        if (imageFilename != null && !imageFilename.isEmpty()) {
+            return "/api/files/view/products/" + imageFilename;
+        }
+        return null;
+    }
 
     /**
      * Sync the quantity field from inventories.

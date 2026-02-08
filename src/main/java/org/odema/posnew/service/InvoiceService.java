@@ -1,4 +1,42 @@
 package org.odema.posnew.service;
 
-public class InvoiceService {
+import org.odema.posnew.dto.response.InvoiceResponse;
+
+import java.io.IOException;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+
+public interface InvoiceService {
+    InvoiceResponse generateInvoice(UUID orderId) throws IOException;
+
+    InvoiceResponse getInvoiceById(UUID invoiceId);
+
+    InvoiceResponse getInvoiceByNumber(String invoiceNumber);
+
+    InvoiceResponse getInvoiceByOrder(UUID orderId);
+
+    List<InvoiceResponse> getInvoicesByCustomer(UUID customerId);
+
+    List<InvoiceResponse> getInvoicesByStore(UUID storeId);
+
+    List<InvoiceResponse> getInvoicesByStatus(String status);
+
+    List<InvoiceResponse> getInvoicesByDateRange(LocalDate startDate, LocalDate endDate);
+
+    byte[] generateInvoicePdf(UUID invoiceId) throws IOException;
+
+    String getInvoicePdfUrl(UUID invoiceId);
+
+    InvoiceResponse updateInvoiceStatus(UUID invoiceId, String status);
+
+    InvoiceResponse markInvoiceAsPaid(UUID invoiceId, String paymentMethod);
+
+    InvoiceResponse cancelInvoice(UUID invoiceId);
+
+    void sendInvoiceByEmail(UUID invoiceId, String email) throws Exception;
+
+    List<InvoiceResponse> getOverdueInvoices();
+
+    Double getTotalOutstandingAmount();
 }

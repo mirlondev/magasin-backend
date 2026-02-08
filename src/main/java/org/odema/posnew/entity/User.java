@@ -64,15 +64,12 @@ public class User {
 
         if (store == null || this.assignedStore == null) return false;
 
-        switch (this.userRole) {
-            case DEPOT_MANAGER:
-                return store.getStoreType().equals(StoreType.WAREHOUSE) &&
-                        store.getStoreId().equals(this.assignedStore.getStoreId());
-            case STORE_ADMIN:
-                return store.getStoreType().equals(StoreType.SHOP) &&
-                        store.getStoreId().equals(this.assignedStore.getStoreId());
-            default:
-                return false;
-        }
+        return switch (this.userRole) {
+            case DEPOT_MANAGER -> store.getStoreType().equals(StoreType.WAREHOUSE) &&
+                    store.getStoreId().equals(this.assignedStore.getStoreId());
+            case STORE_ADMIN -> store.getStoreType().equals(StoreType.SHOP) &&
+                    store.getStoreId().equals(this.assignedStore.getStoreId());
+            default -> false;
+        };
     }
 }

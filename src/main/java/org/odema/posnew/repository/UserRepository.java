@@ -4,6 +4,8 @@ import org.odema.posnew.entity.User;
 import org.odema.posnew.entity.enums.UserRole;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -29,13 +31,15 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     Optional<User> findByPhone(String phone);
 
+    //int countActiveEmployeesByStore(UUID storeId);
+
     //    @Query("SELECT u FROM User u WHERE u.assignedStore.storeId = :storeId " +
 //            "AND u.userRole IN :roles AND u.active = true")
 //    List<User> findByStoreAndRolesIn(
 //            @Param("storeId") String storeId,
 //            @Param("roles") List<UserRole> roles);
 
-//    @Query("SELECT COUNT(u) FROM User u WHERE u.assignedStore.storeId = :storeId " +
-//            "AND u.active = true")
-//    Long countActiveEmployeesByStore(@Param("storeId") String storeId);
+   @Query("SELECT COUNT(u) FROM User u WHERE u.assignedStore.storeId = :storeId " +
+           "AND u.active = true")
+  Long countActiveEmployeesByStore(@Param("storeId") UUID storeId);
 }

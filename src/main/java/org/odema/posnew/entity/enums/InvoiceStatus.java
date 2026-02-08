@@ -1,4 +1,11 @@
 package org.odema.posnew.entity.enums;
 
-public class InvoiceStatus {
+public enum InvoiceStatus {
+    DRAFT,
+    ISSUED,
+    SENT,
+    PAID,
+    OVERDUE,
+    CANCELLED,
+    REFUNDED
 }

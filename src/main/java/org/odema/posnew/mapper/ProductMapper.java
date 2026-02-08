@@ -47,6 +47,7 @@ public class ProductMapper {
                 product.getCategory() != null ? product.getCategory().getCategoryId() : null,
                 product.getCategory() != null ? product.getCategory().getName() : null,
                 product.getImageUrl(),
+                product.getImageFilename(),
                 product.getSku(),
                 product.getBarcode(),
                 product.isInStock(), // ← Also calculated
@@ -76,7 +77,8 @@ public class ProductMapper {
                 storeQuantity, // ← Store-specific quantity
                 product.getCategory() != null ? product.getCategory().getCategoryId() : null,
                 product.getCategory() != null ? product.getCategory().getName() : null,
-                product.getImageUrl(),
+                product.getFullImageUrl(), // Retourne l'URL complète de l'image
+                product.getImageFilename(),
                 product.getSku(),
                 product.getBarcode(),
                 storeQuantity > 0, // In stock in THIS store

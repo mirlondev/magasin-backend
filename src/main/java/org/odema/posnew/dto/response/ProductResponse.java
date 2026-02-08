@@ -13,6 +13,8 @@ public record ProductResponse(
         UUID categoryId,
         String categoryName,
         String imageUrl,
+
+        String Filename,
         String sku,
         String barcode,
         Boolean inStock,

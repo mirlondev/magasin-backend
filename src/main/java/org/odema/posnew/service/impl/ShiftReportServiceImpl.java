@@ -151,7 +151,7 @@ public class ShiftReportServiceImpl implements ShiftReportService {
 
     @Override
     public List<ShiftReportResponse> getOpenShiftsByStore(UUID storeId) {
-        return shiftReportRepository.findOpenShiftsByStore(storeId.toString()).stream()
+        return shiftReportRepository.findOpenShiftsByStore(storeId).stream()
                 .map(shiftReportMapper::toResponse)
                 .toList();
     }
@@ -218,13 +218,13 @@ public class ShiftReportServiceImpl implements ShiftReportService {
 
     @Override
     public BigDecimal getTotalSalesByStore(UUID storeId) {
-        Double total = shiftReportRepository.getTotalSalesByStore(storeId.toString());
+        Double total = shiftReportRepository.getTotalSalesByStore(storeId);
         return total != null ? BigDecimal.valueOf(total) : BigDecimal.ZERO;
     }
 
     @Override
     public BigDecimal getTotalRefundsByStore(UUID storeId) {
-        Double total = shiftReportRepository.getTotalRefundsByStore(storeId.toString());
+        Double total = shiftReportRepository.getTotalRefundsByStore(storeId);
         return total != null ? BigDecimal.valueOf(total) : BigDecimal.ZERO;
     }
 

@@ -39,19 +39,19 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     @Query("SELECT o FROM Order o WHERE o.store.storeId = :storeId AND o.createdAt BETWEEN :startDate AND :endDate")
     List<Order> findByStoreAndDateRange(
-            @Param("storeId") String storeId,
+            @Param("storeId") UUID storeId,
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
 
     @Query("SELECT SUM(o.totalAmount) FROM Order o WHERE o.store.storeId = :storeId AND o.createdAt BETWEEN :startDate AND :endDate AND o.status = 'COMPLETED'")
     BigDecimal getTotalSalesByStoreAndDateRange(
-            @Param("storeId") String storeId,
+            @Param("storeId") UUID storeId,
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
 
     @Query("SELECT COUNT(o) FROM Order o WHERE o.store.storeId = :storeId AND o.createdAt BETWEEN :startDate AND :endDate AND o.status = 'COMPLETED'")
     Integer getOrderCountByStoreAndDateRange(
-            @Param("storeId") String storeId,
+            @Param("storeId") UUID storeId,
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
 
@@ -62,4 +62,6 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     List<Order> findCustomerOrderHistory(@Param("customerId") UUID customerId);
 
     boolean existsByOrderNumber(String orderNumber);
+
+    List<Order> findByStore_StoreIdAndStatus(UUID store_storeId, OrderStatus status);
 }

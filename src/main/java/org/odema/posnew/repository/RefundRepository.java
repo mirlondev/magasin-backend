@@ -19,7 +19,7 @@ public interface RefundRepository extends JpaRepository<Refund, UUID> {
 
     List<Refund> findByOrder_OrderId(UUID orderId);
 
-    List<Refund> findByStore_StoreId(String storeId);
+    List<Refund> findByStore_StoreId(UUID storeId);
 
     List<Refund> findByCashier_UserId(UUID cashierId);
 
@@ -32,11 +32,11 @@ public interface RefundRepository extends JpaRepository<Refund, UUID> {
     BigDecimal getTotalRefundedAmountByOrder(@Param("orderId") UUID orderId);
 
     @Query("SELECT COUNT(r) FROM Refund r WHERE r.store.storeId = :storeId AND r.status = 'COMPLETED'")
-    Integer countCompletedRefundsByStore(@Param("storeId") String storeId);
+    Integer countCompletedRefundsByStore(@Param("storeId") UUID storeId);
 
     @Query("SELECT SUM(r.refundAmount) FROM Refund r WHERE r.store.storeId = :storeId AND r.createdAt BETWEEN :startDate AND :endDate")
     BigDecimal getTotalRefundsByStoreAndDateRange(
-            @Param("storeId") String storeId,
+            @Param("storeId") UUID storeId,
             @Param("startDate") java.time.LocalDateTime startDate,
             @Param("endDate") java.time.LocalDateTime endDate);
 

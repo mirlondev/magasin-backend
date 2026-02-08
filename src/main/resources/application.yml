@@ -32,3 +32,31 @@ logging:
   level:
     org.odema.posnew: DEBUG
     org.springframework.security: DEBUG
+# application.yml - Partie factures
+app:
+  company:
+    name: "ODEMA POS"
+    address: "123 Rue Principale, Yaoundé, Cameroun"
+    phone: "+237 6XX XX XX XX"
+    email: "contact@odema.com"
+    tax-id: "M123456789"
+    website: "https://www.odema.com"
+
+  invoice:
+    logo-path: "classpath:static/logo.png"
+    default-payment-days: 30
+    currency: "FCFA"
+    tax-rate: 19.25
+    terms: "Paiement dans les 30 jours suivant la date de facturation."
+    footer-text: "Merci pour votre confiance!"
+
+    # Configuration PDF
+    pdf:
+      font-family: "Helvetica"
+      title-size: 16
+      normal-size: 10
+      small-size: 8
+      margin-top: 50
+      margin-bottom: 50
+      margin-left: 50
+      margin-right: 50
