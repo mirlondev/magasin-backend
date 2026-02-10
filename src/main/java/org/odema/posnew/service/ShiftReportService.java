@@ -1,7 +1,9 @@
 package org.odema.posnew.service;
 
 import org.odema.posnew.dto.request.ShiftReportRequest;
+import org.odema.posnew.dto.response.ShiftReportDetailResponse;
 import org.odema.posnew.dto.response.ShiftReportResponse;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -38,4 +40,19 @@ public interface ShiftReportService {
     BigDecimal getTotalSalesByStore(UUID storeId);
 
     BigDecimal getTotalRefundsByStore(UUID storeId);
+
+    @Transactional
+    ShiftReportDetailResponse getShiftDetail(UUID shiftReportId);
+
+    BigDecimal getCashTotal(UUID shiftId);
+
+    BigDecimal getMobileTotal(UUID shiftId);
+
+    BigDecimal getCardTotal(UUID shiftId);
+
+    BigDecimal getCreditTotal(UUID shiftId);
+
+    // Mettre à jour la méthode closeShift pour utiliser les paiements
+    @Transactional
+    ShiftReportResponse closeShift(UUID shiftReportId, BigDecimal actualBalance, String notes);
 }

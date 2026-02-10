@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.odema.posnew.dto.request.OrderItemRequest;
 import org.odema.posnew.dto.request.OrderRequest;
 import org.odema.posnew.dto.response.OrderResponse;
+import org.odema.posnew.dto.request.PaymentRequest;
 import org.odema.posnew.entity.*;
 import org.odema.posnew.entity.enums.OrderStatus;
 import org.odema.posnew.entity.enums.PaymentMethod;
@@ -11,9 +12,11 @@ import org.odema.posnew.entity.enums.PaymentStatus;
 import org.odema.posnew.entity.enums.UserRole;
 import org.odema.posnew.exception.BadRequestException;
 import org.odema.posnew.exception.NotFoundException;
+import org.odema.posnew.exception.UnauthorizedException;
 import org.odema.posnew.mapper.OrderMapper;
 import org.odema.posnew.repository.*;
 import org.odema.posnew.service.OrderService;
+import org.odema.posnew.service.PaymentService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -37,127 +40,8 @@ public class OrderServiceImpl implements OrderService {
     private final ProductRepository productRepository;
     private final InventoryRepository inventoryRepository;
     private final OrderMapper orderMapper;
+    private final PaymentService paymentService;
 
-    @Override
-    @Transactional
-    public OrderResponse createOrder(OrderRequest request, UUID cashierId) {
-        // Récupérer le caissier
-        User cashier = userRepository.findById(cashierId)
-                .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
-
-        // Récupérer le store
-        Store store = storeRepository.findById(request.storeId())
-                .orElseThrow(() -> new NotFoundException("Store non trouvé"));
-
-        // Récupérer le client si spécifié
-        Customer customer = null;
-        if (request.customerId() != null) {
-            customer = customerRepository.findById(request.customerId())
-                    .orElseThrow(() -> new NotFoundException("Client non trouvé"));
-        }
-
-        // Générer un numéro de commande unique
-        String orderNumber = generateOrderNumber();
-
-        // Ensure all BigDecimal values have defaults
-        BigDecimal taxRate = request.taxRate() != null ? request.taxRate() : BigDecimal.ZERO;
-        BigDecimal discountAmount = request.discountAmount() != null ? request.discountAmount() : BigDecimal.ZERO;
-        BigDecimal amountPaid = request.amountPaid() != null ? request.amountPaid() : BigDecimal.ZERO;
-        Boolean isTaxable = request.isTaxable() != null ? request.isTaxable() : Boolean.FALSE;
-
-        // Créer la commande
-        Order order = Order.builder()
-                .orderNumber(orderNumber)
-                .customer(customer)
-                .cashier(cashier)
-                .store(store)
-                .paymentMethod(request.paymentMethod() != null ? request.paymentMethod() : PaymentMethod.CASH)
-                .paymentStatus(PaymentStatus.PENDING)
-                .status(OrderStatus.PENDING)
-                .notes(request.notes())
-                .isTaxable(isTaxable)
-                .taxRate(taxRate)
-                .discountAmount(discountAmount)
-                .amountPaid(amountPaid)
-                // Initialize all BigDecimal fields to ZERO
-                .subtotal(BigDecimal.ZERO)
-                .taxAmount(BigDecimal.ZERO)
-                .totalAmount(BigDecimal.ZERO)
-                .changeAmount(BigDecimal.ZERO)
-                .build();
-
-        // Ajouter les articles
-        for (OrderItemRequest itemRequest : request.items()) {
-            Product product = productRepository.findById(itemRequest.productId())
-                    .orElseThrow(() -> new NotFoundException("Produit non trouvé: " + itemRequest.productId()));
-
-            // Vérifier le stock
-            Integer availableStock = inventoryRepository.findTotalQuantityByProduct(itemRequest.productId());
-            if (availableStock == null || availableStock < itemRequest.quantity()) {
-                throw new BadRequestException("Stock insuffisant pour le produit: " + product.getName());
-            }
-
-            // Ensure discount has default value
-            BigDecimal itemDiscountPercentage = itemRequest.discountPercentage() != null ?
-                    itemRequest.discountPercentage() : BigDecimal.ZERO;
-
-            // Créer l'article de commande
-            OrderItem orderItem = OrderItem.builder()
-                    .order(order)
-                    .product(product)
-                    .quantity(itemRequest.quantity())
-                    .unitPrice(product.getPrice())
-                    .discountPercentage(itemDiscountPercentage)
-                    .discountAmount(BigDecimal.ZERO) // Initialize
-                    .totalPrice(BigDecimal.ZERO) // Initialize
-                    .finalPrice(BigDecimal.ZERO) // Initialize
-                    .notes(itemRequest.notes())
-                    .build();
-
-            // Calculate prices for this item
-            orderItem.calculatePrices();
-
-            // Add item to order
-            order.addItem(orderItem);
-        }
-
-        // Calculer les totaux
-        order.calculateTotals();
-
-        // Déterminer le statut de paiement
-        if (order.getAmountPaid() != null && order.getTotalAmount() != null) {
-            if (order.getAmountPaid().compareTo(order.getTotalAmount()) >= 0) {
-                order.setPaymentStatus(PaymentStatus.PAID);
-                order.setStatus(OrderStatus.COMPLETED);
-                order.setCompletedAt(LocalDateTime.now());
-            } else if (order.getAmountPaid().compareTo(BigDecimal.ZERO) > 0) {
-                order.setPaymentStatus(PaymentStatus.PARTIALLY_PAID);
-                order.setStatus(OrderStatus.PROCESSING);
-            }
-        }
-
-        // Sauvegarder la commande
-        Order savedOrder = orderRepository.save(order);
-
-        // Mettre à jour le stock
-        updateInventoryForOrder(savedOrder);
-
-        // Mettre à jour le client si applicable
-        if (customer != null) {
-            customer.addPurchase(savedOrder.getTotalAmount().doubleValue());
-            customerRepository.save(customer);
-        }
-
-        return orderMapper.toResponse(savedOrder);
-    }
-
-    @Override
-    public OrderResponse getOrderById(UUID orderId) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        return orderMapper.toResponse(order);
-    }
 
     @Override
     public OrderResponse getOrderByNumber(String orderNumber) {
@@ -318,31 +202,142 @@ public class OrderServiceImpl implements OrderService {
                 .toList();
     }
 
+//new methodes
+
+
     @Override
     @Transactional
-    public OrderResponse processPayment(UUID orderId, BigDecimal amountPaid) {
+    public OrderResponse createOrder(OrderRequest request, UUID cashierId) throws UnauthorizedException {
+        // Récupérer le caissier
+        User cashier = userRepository.findById(cashierId)
+                .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
+
+        // Récupérer le store
+        Store store = storeRepository.findById(request.storeId())
+                .orElseThrow(() -> new NotFoundException("Store non trouvé"));
+
+        // Récupérer le client si spécifié
+        Customer customer = null;
+        if (request.customerId() != null) {
+            customer = customerRepository.findById(request.customerId())
+                    .orElseThrow(() -> new NotFoundException("Client non trouvé"));
+        }
+
+        // Générer un numéro de commande unique
+        String orderNumber = generateOrderNumber();
+
+        // Valeurs par défaut
+        BigDecimal taxRate = request.taxRate() != null ? request.taxRate() : BigDecimal.ZERO;
+        BigDecimal discountAmount = request.discountAmount() != null ? request.discountAmount() : BigDecimal.ZERO;
+        Boolean isTaxable = request.isTaxable() != null ? request.isTaxable() : Boolean.FALSE;
+
+        // Créer la commande avec le nouveau système
+        PaymentMethod paymentMethod1 = request.paymentMethod() != null ?
+                request.paymentMethod() : PaymentMethod.CASH;
+        Order order = Order.builder()
+                .orderNumber(orderNumber)
+                .customer(customer)
+                .cashier(cashier)
+                .store(store)
+                .paymentMethod(paymentMethod1)
+                .paymentStatus(PaymentStatus.UNPAID) // Par défaut non payé
+                .status(OrderStatus.PENDING)
+                .notes(request.notes())
+                .isTaxable(isTaxable)
+                .taxRate(taxRate)
+                .discountAmount(discountAmount)
+                .amountPaid(BigDecimal.ZERO) // Initialisé à 0
+                .subtotal(BigDecimal.ZERO)
+                .taxAmount(BigDecimal.ZERO)
+                .totalAmount(BigDecimal.ZERO)
+                .changeAmount(BigDecimal.ZERO)
+                .build();
+
+        // Ajouter les articles
+        for (OrderItemRequest itemRequest : request.items()) {
+            Product product = productRepository.findById(itemRequest.productId())
+                    .orElseThrow(() -> new NotFoundException("Produit non trouvé: " + itemRequest.productId()));
+
+            // Vérifier le stock
+            Integer availableStock = inventoryRepository.findTotalQuantityByProduct(itemRequest.productId());
+            if (availableStock == null || availableStock < itemRequest.quantity()) {
+                throw new BadRequestException("Stock insuffisant pour le produit: " + product.getName());
+            }
+
+            BigDecimal itemDiscountPercentage = itemRequest.discountPercentage() != null ?
+                    itemRequest.discountPercentage() : BigDecimal.ZERO;
+
+            OrderItem orderItem = OrderItem.builder()
+                    .order(order)
+                    .product(product)
+                    .quantity(itemRequest.quantity())
+                    .unitPrice(product.getPrice())
+                    .discountPercentage(itemDiscountPercentage)
+                    .discountAmount(BigDecimal.ZERO)
+                    .totalPrice(BigDecimal.ZERO)
+                    .finalPrice(BigDecimal.ZERO)
+                    .notes(itemRequest.notes())
+                    .build();
+
+            orderItem.calculatePrices();
+            order.addItem(orderItem);
+        }
+
+        // Calculer les totaux
+        order.calculateTotals();
+
+        // Sauvegarder la commande
+        Order savedOrder = orderRepository.save(order);
+
+        // Si un paiement initial est spécifié, le traiter
+        if (request.amountPaid() != null && request.amountPaid().compareTo(BigDecimal.ZERO) > 0) {
+            PaymentMethod paymentMethod = paymentMethod1;
+
+            PaymentRequest paymentRequest = new PaymentRequest(
+                    paymentMethod,
+                    request.amountPaid(),
+                    "Paiement initial lors de la création de la commande"
+            );
+
+            paymentService.processPayment(savedOrder.getOrderId(), paymentRequest, cashier.getUserId());
+
+            // Recharger la commande pour avoir les paiements à jour
+            savedOrder = orderRepository.findById(savedOrder.getOrderId())
+                    .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+        }
+
+        // Mettre à jour le stock
+        updateInventoryForOrder(savedOrder);
+
+        // Mettre à jour le client si applicable
+        if (customer != null) {
+            customer.addPurchase(savedOrder.getTotalAmount().doubleValue());
+            customerRepository.save(customer);
+        }
+
+        return orderMapper.toResponse(savedOrder);
+    }
+
+    // Supprimer l'ancienne méthode processPayment et la remplacer par
+    @Transactional
+    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','CASHIER')")
+    @Override
+    public OrderResponse addPaymentToOrder(UUID orderId, PaymentRequest paymentRequest) throws UnauthorizedException {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
 
         if (order.getStatus() == OrderStatus.CANCELLED) {
-            throw new BadRequestException("Impossible de traiter le paiement d'une commande annulée");
+            throw new BadRequestException("Impossible d'ajouter un paiement à une commande annulée");
         }
 
-        if (order.getStatus() == OrderStatus.COMPLETED) {
-            throw new BadRequestException("La commande est déjà terminée");
-        }
 
-        order.setAmountPaid(amountPaid != null ? amountPaid : BigDecimal.ZERO);
-        order.calculateTotals();
+        // Traiter le paiement via le PaymentService
+        paymentService.processPayment(orderId, paymentRequest, order.getCashier().getUserId());
 
-        // Vérifier si le paiement est suffisant
-        if (order.getAmountPaid().compareTo(order.getTotalAmount()) >= 0) {
-            order.markAsPaid();
-        } else if (order.getAmountPaid().compareTo(BigDecimal.ZERO) > 0) {
-            order.setPaymentStatus(PaymentStatus.PARTIALLY_PAID);
-        }
+        // Recharger la commande mise à jour
+        Order updatedOrder = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
 
-        Order updatedOrder = orderRepository.save(order);
         return orderMapper.toResponse(updatedOrder);
     }
 
@@ -356,9 +351,11 @@ public class OrderServiceImpl implements OrderService {
             throw new BadRequestException("Impossible de terminer une commande annulée");
         }
 
+        // Vérifier si la commande est payée ou partiellement payée
         if (order.getPaymentStatus() != PaymentStatus.PAID &&
-                order.getPaymentStatus() != PaymentStatus.PARTIALLY_PAID) {
-            throw new BadRequestException("Le paiement n'a pas été effectué");
+                order.getPaymentStatus() != PaymentStatus.PARTIALLY_PAID &&
+                order.getPaymentStatus() != PaymentStatus.CREDIT) {
+            throw new BadRequestException("La commande n'a pas de paiement enregistré");
         }
 
         order.setStatus(OrderStatus.COMPLETED);
@@ -368,6 +365,14 @@ public class OrderServiceImpl implements OrderService {
         return orderMapper.toResponse(updatedOrder);
     }
 
+    // Mettre à jour la méthode getOrderById pour inclure les paiements
+    @Override
+    public OrderResponse getOrderById(UUID orderId) {
+        Order order = orderRepository.findByIdWithPayments(orderId)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+
+        return orderMapper.toResponse(order);
+    }
     @Override
     public BigDecimal getTotalSalesByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate) {
         if (startDate == null || endDate == null) {
@@ -380,6 +385,29 @@ public class OrderServiceImpl implements OrderService {
 
         return total != null ? total : BigDecimal.ZERO;
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderResponse> findCashierOrdersByShift(UUID cashierId, UUID shiftId) {
+
+        // 1. Vérifier le caissier
+        User cashier = userRepository.findById(cashierId)
+                .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
+
+//        if (cashier.getUserRole() != UserRole.CASHIER) {
+//            throw new BadRequestException("L'utilisateur n'est pas un caissier");
+//        }
+
+        // 2. Récupérer les commandes du caissier pour ce shift
+        List<Order> orders = orderRepository
+                .findCashierOrdersByShift(cashierId, shiftId);
+
+        // 3. Mapper vers OrderResponse
+        return orders.stream()
+                .map(orderMapper::toResponse)
+                .toList();
+    }
+
 
     @Override
     public Integer getOrderCountByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate) {

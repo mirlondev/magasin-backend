@@ -72,4 +72,9 @@ public class User {
             default -> false;
         };
     }
+
+    public String getFullName() {
+        return  username;
+
+    }
 }

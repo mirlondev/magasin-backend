@@ -9,6 +9,7 @@ import org.odema.posnew.dto.request.OrderRequest;
 import org.odema.posnew.dto.response.ApiResponse;
 import org.odema.posnew.dto.response.OrderResponse;
 import org.odema.posnew.dto.response.PaginatedResponse;
+import org.odema.posnew.exception.UnauthorizedException;
 import org.odema.posnew.security.CustomUserDetails;
 import org.odema.posnew.service.OrderService;
 import org.springframework.data.domain.Page;
@@ -39,7 +40,7 @@ public class OrderController {
     @Operation(summary = "Créer une nouvelle commande")
     public ResponseEntity<ApiResponse<OrderResponse>> createOrder(
             @Valid @RequestBody OrderRequest request,
-            @AuthenticationPrincipal CustomUserDetails userDetails) {
+            @AuthenticationPrincipal CustomUserDetails userDetails) throws UnauthorizedException {
         // Récupérer l'ID du caissier depuis les détails de l'utilisateur
         UUID cashierId = userDetails.getUserId(); // À adapter selon votre implémentation
         OrderResponse response = orderService.createOrder(request, cashierId);
@@ -102,15 +103,15 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(responses));
     }
 
-    @PatchMapping("/{orderId}/payment")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Traiter le paiement d'une commande")
-    public ResponseEntity<ApiResponse<OrderResponse>> processPayment(
-            @PathVariable UUID orderId,
-            @RequestParam BigDecimal amountPaid) {
-        OrderResponse response = orderService.processPayment(orderId, amountPaid);
-        return ResponseEntity.ok(ApiResponse.success("Paiement traité", response));
-    }
+//    @PatchMapping("/{orderId}/payment")
+//    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
+//    @Operation(summary = "Traiter le paiement d'une commande")
+//    public ResponseEntity<ApiResponse<OrderResponse>> processPayment(
+//            @PathVariable UUID orderId,
+//            @RequestParam BigDecimal amountPaid) {
+//        OrderResponse response = orderService.(orderId, amountPaid);
+//        return ResponseEntity.ok(ApiResponse.success("Paiement traité", response));
+//    }
 
     @PatchMapping("/{orderId}/complete")
     @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
@@ -137,6 +138,24 @@ public class OrderController {
         List<OrderResponse> responses = orderService.getRecentOrders(limit);
         return ResponseEntity.ok(ApiResponse.success(responses));
     }
+
+    @GetMapping("/cashier/{cashierId}/shift/{shiftId}")
+            @PreAuthorize("""
+            hasAnyRole('ADMIN','SHOP_MANAGER')\s
+            or #cashierId == authentication.principal.userId
+       \s""")
+    @Operation(summary = "Obtenir les commandes d’un caissier durant un shift")
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getCashierOrdersByShift(
+            @PathVariable UUID cashierId,
+            @PathVariable UUID shiftId
+    ) {
+        List<OrderResponse> responses =
+                orderService.findCashierOrdersByShift(cashierId, shiftId);
+
+        return ResponseEntity.ok(ApiResponse.success(responses));
+    }
+
+
 
     @GetMapping("/store/{storeId}/sales-total")
     @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER')")

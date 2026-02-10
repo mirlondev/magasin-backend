@@ -44,38 +44,49 @@ public class Order {
     private Store store;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
-    @Builder.Default  // This tells Lombok's builder to use the field's default value
+    @Builder.Default
     private List<OrderItem> items = new ArrayList<>();
 
-    @Column(nullable = false, precision = 12)
+    // ============ NOUVELLE RELATION PAYMENTS ============
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private List<Payment> payments = new ArrayList<>();
+    // ====================================================
+
+    @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal subtotal = BigDecimal.ZERO;
 
-    @Column(precision = 12)
+    @Column(precision = 12, scale = 2)
     private BigDecimal taxAmount = BigDecimal.ZERO;
 
-    @Column(precision = 12)
+    @Column(precision = 12, scale = 2)
     private BigDecimal discountAmount = BigDecimal.ZERO;
 
-    @Column(nullable = false, precision = 12)
+    @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
-    @Column(nullable = false, precision = 12)
+    // ⚠️ DEPRECATED - Garder pour compatibilité temporaire
+    // À terme, utiliser getTotalPaid() calculé depuis payments
+    @Column(precision = 12, scale = 2)
+    @Deprecated
     private BigDecimal amountPaid = BigDecimal.ZERO;
 
-    @Column(precision = 12)
+    @Column(precision = 12, scale = 2)
     private BigDecimal changeAmount = BigDecimal.ZERO;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private OrderStatus status = OrderStatus.PENDING;
 
+    // ⚠️ DEPRECATED - Le payment method est maintenant dans Payment
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(length = 20)
+    @Deprecated
     private PaymentMethod paymentMethod = PaymentMethod.CASH;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private PaymentStatus paymentStatus = PaymentStatus.PENDING;
+    private PaymentStatus paymentStatus = PaymentStatus.UNPAID;
 
     @Column(length = 500)
     private String notes;
@@ -83,7 +94,7 @@ public class Order {
     @Column(name = "is_taxable")
     private Boolean isTaxable = true;
 
-    @Column(name = "tax_rate", precision = 5)
+    @Column(name = "tax_rate", precision = 5, scale = 2)
     private BigDecimal taxRate = BigDecimal.valueOf(0.0);
 
     @CreationTimestamp
@@ -101,13 +112,13 @@ public class Order {
     private LocalDateTime cancelledAt;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
-    @Builder.Default  // This tells Lombok's builder to use the field's default value
+    @Builder.Default
     private List<Refund> refunds = new ArrayList<>();
 
-    // Add @PrePersist to ensure defaults before saving
     @PrePersist
     public void initializeDefaults() {
         if (items == null) items = new ArrayList<>();
+        if (payments == null) payments = new ArrayList<>();
         if (refunds == null) refunds = new ArrayList<>();
         if (subtotal == null) subtotal = BigDecimal.ZERO;
         if (taxAmount == null) taxAmount = BigDecimal.ZERO;
@@ -119,22 +130,110 @@ public class Order {
         if (isTaxable == null) isTaxable = true;
     }
 
-    // Méthodes utilitaires
+    // ============ NOUVELLES MÉTHODES DE PAIEMENT ============
+
+    /**
+     * Calcule le montant total payé (CASH, MOBILE, CARD)
+     * Exclut les crédits
+     */
+    public BigDecimal getTotalPaid() {
+        if (payments == null || payments.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return payments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.PAID)
+                .filter(p -> p.getMethod() != PaymentMethod.CREDIT)
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * Calcule le montant total en crédit
+     */
+    public BigDecimal getTotalCredit() {
+        if (payments == null || payments.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return payments.stream()
+                .filter(p -> p.getMethod() == PaymentMethod.CREDIT)
+                .filter(p -> p.getStatus() == PaymentStatus.CREDIT)
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * Calcule le montant restant à payer
+     */
+    public BigDecimal getRemainingAmount() {
+        BigDecimal paid = getTotalPaid();
+        BigDecimal credit = getTotalCredit();
+        return totalAmount.subtract(paid).subtract(credit);
+    }
+
+    /**
+     * Détermine le statut de paiement calculé automatiquement
+     */
+    public PaymentStatus getComputedPaymentStatus() {
+        BigDecimal totalPaidAndCredit = getTotalPaid().add(getTotalCredit());
+
+        if (totalPaidAndCredit.compareTo(BigDecimal.ZERO) == 0) {
+            return PaymentStatus.UNPAID;
+        }
+
+        if (totalPaidAndCredit.compareTo(totalAmount) >= 0) {
+            // Si tout est en crédit, statut CREDIT, sinon PAID
+            if (getTotalPaid().compareTo(BigDecimal.ZERO) == 0) {
+                return PaymentStatus.CREDIT;
+            }
+            return PaymentStatus.PAID;
+        }
+
+        return PaymentStatus.PARTIALLY_PAID;
+    }
+
+    /**
+     * Ajoute un paiement à la commande
+     */
+    public void addPayment(Payment payment) {
+        if (this.payments == null) {
+            this.payments = new ArrayList<>();
+        }
+        payment.setOrder(this);
+        this.payments.add(payment);
+
+        // Mettre à jour le statut automatiquement
+        this.paymentStatus = getComputedPaymentStatus();
+
+        // Mettre à jour amountPaid pour compatibilité
+        this.amountPaid = getTotalPaid();
+    }
+
+    /**
+     * Retire un paiement de la commande
+     */
+    public void removePayment(Payment payment) {
+        if (this.payments != null) {
+            this.payments.remove(payment);
+            payment.setOrder(null);
+
+            // Mettre à jour le statut
+            this.paymentStatus = getComputedPaymentStatus();
+            this.amountPaid = getTotalPaid();
+        }
+    }
+
+    // ============ MÉTHODES EXISTANTES ============
+
     public void calculateTotals() {
-        // Ensure items list is initialized
         if (this.items == null) {
             this.items = new ArrayList<>();
         }
 
-        // Initialize to ZERO if null
         if (this.discountAmount == null) {
             this.discountAmount = BigDecimal.ZERO;
         }
         if (this.taxRate == null) {
             this.taxRate = BigDecimal.ZERO;
-        }
-        if (this.amountPaid == null) {
-            this.amountPaid = BigDecimal.ZERO;
         }
 
         // Calculer le sous-total
@@ -153,9 +252,10 @@ public class Order {
         // Calculer le total
         this.totalAmount = subtotal.add(taxAmount).subtract(discountAmount);
 
-        // Calculer la monnaie
-        if (amountPaid != null && totalAmount != null) {
-            this.changeAmount = amountPaid.subtract(totalAmount);
+        // Calculer la monnaie (basé sur le total payé)
+        BigDecimal totalPaid = getTotalPaid();
+        if (totalPaid != null && totalAmount != null) {
+            this.changeAmount = totalPaid.subtract(totalAmount);
             if (this.changeAmount.compareTo(BigDecimal.ZERO) < 0) {
                 this.changeAmount = BigDecimal.ZERO;
             }
@@ -165,7 +265,6 @@ public class Order {
     }
 
     public void addItem(OrderItem item) {
-        // Ensure items list is initialized
         if (this.items == null) {
             this.items = new ArrayList<>();
         }
@@ -204,7 +303,7 @@ public class Order {
         return refundedAmount.compareTo(totalAmount) >= 0;
     }
 
-    // Getter for items that ensures it's never null
+    // Getters that ensure non-null lists
     public List<OrderItem> getItems() {
         if (this.items == null) {
             this.items = new ArrayList<>();
@@ -212,7 +311,13 @@ public class Order {
         return this.items;
     }
 
-    // Getter for refunds that ensures it's never null
+    public List<Payment> getPayments() {
+        if (this.payments == null) {
+            this.payments = new ArrayList<>();
+        }
+        return this.payments;
+    }
+
     public List<Refund> getRefunds() {
         if (this.refunds == null) {
             this.refunds = new ArrayList<>();

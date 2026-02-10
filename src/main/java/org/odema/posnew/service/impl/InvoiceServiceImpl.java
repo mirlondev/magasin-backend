@@ -8,13 +8,16 @@ import org.odema.posnew.dto.response.InvoiceResponse;
 import org.odema.posnew.entity.*;
 import org.odema.posnew.entity.enums.InvoiceStatus;
 import org.odema.posnew.entity.enums.OrderStatus;
+import org.odema.posnew.entity.enums.PaymentStatus;
 import org.odema.posnew.exception.BadRequestException;
 import org.odema.posnew.exception.NotFoundException;
 import org.odema.posnew.mapper.InvoiceMapper;
 import org.odema.posnew.repository.InvoiceRepository;
 import org.odema.posnew.repository.OrderRepository;
+import org.odema.posnew.repository.PaymentRepository;
 import org.odema.posnew.service.FileStorageService;
 import org.odema.posnew.service.InvoiceService;
+import org.odema.posnew.service.PaymentService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,7 +44,7 @@ public class InvoiceServiceImpl implements InvoiceService {
     private final OrderRepository orderRepository;
     private final FileStorageService fileStorageService;
     private final InvoiceMapper invoiceMapper;
-
+private  final PaymentRepository paymentRepository;
     @Value("${app.file.directories.invoices:invoices}")
     private String invoicesDirectory;
 
@@ -63,7 +66,7 @@ public class InvoiceServiceImpl implements InvoiceService {
     @Value("${app.invoice.logo-path:classpath:static/logo.png}")
     private String logoPath;
 
-    @Override
+   /* @Override
     @Transactional
     public InvoiceResponse generateInvoice(UUID orderId) throws IOException {
         Order order = orderRepository.findById(orderId)
@@ -145,7 +148,7 @@ public class InvoiceServiceImpl implements InvoiceService {
                 .map(invoiceMapper::toResponse)
                 .toList();
     }
-
+*/
     @Override
     public List<InvoiceResponse> getInvoicesByStatus(String status) {
         try {
@@ -170,50 +173,16 @@ public class InvoiceServiceImpl implements InvoiceService {
 
     @Override
     public byte[] generateInvoicePdf(UUID invoiceId) throws IOException {
-        Invoice invoice = invoiceRepository.findById(invoiceId)
-                .orElseThrow(() -> new NotFoundException("Facture non trouvée"));
-
-        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            Document document = new Document(PageSize.A4);
-            PdfWriter writer = PdfWriter.getInstance(document, baos);
-
-            // Ajouter l'en-tête et le pied de page
-            writer.setPageEvent(new InvoiceHeaderFooter());
-
-            document.open();
-
-            // Logo et informations de l'entreprise
-            addCompanyHeader(document);
-
-            // Informations de la facture
-            addInvoiceInfo(document, invoice);
-
-            // Informations du client
-            addCustomerInfo(document, invoice.getCustomer());
-
-            // Table des articles
-            addItemsTable(document, invoice.getOrder());
-
-            // Totaux
-            addTotals(document, invoice);
-
-            // Notes et conditions
-            addNotesAndTerms(document, invoice);
-
-            document.close();
-
-            // Sauvegarder le PDF
-            byte[] pdfBytes = baos.toByteArray();
-            saveInvoicePdf(invoice, pdfBytes);
-
-            return pdfBytes;
-        } catch (DocumentException e) {
-            log.error("Erreur lors de la génération du PDF", e);
-            throw new IOException("Erreur lors de la génération du PDF", e);
-        }
+        return new byte[0];
     }
 
     @Override
+    public String getInvoicePdfUrl(UUID invoiceId) {
+        return "";
+    }
+
+
+  /*  @Override
     public String getInvoicePdfUrl(UUID invoiceId) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new NotFoundException("Facture non trouvée"));
@@ -223,6 +192,93 @@ public class InvoiceServiceImpl implements InvoiceService {
         }
 
         return fileStorageService.getFileUrl(invoice.getPdfFilename(), invoicesDirectory);
+    }
+*/
+
+    // Dans InvoiceServiceImpl, modifier la méthode generateInvoice
+
+    @Override
+    @Transactional
+    public InvoiceResponse generateInvoice(UUID orderId) throws IOException {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+
+        // Vérifier si une facture existe déjà
+        invoiceRepository.findByOrder_OrderId(orderId).ifPresent(invoice -> {
+            throw new BadRequestException("Une facture existe déjà pour cette commande");
+        });
+
+        // Générer le numéro de facture
+        String invoiceNumber = generateInvoiceNumber();
+
+        // Récupérer les paiements
+        List<Payment> payments = paymentRepository.findByOrder_OrderId(orderId);
+
+        // Calculer les montants basés sur les paiements
+        BigDecimal totalPaid = payments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.PAID)
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal creditAmount = payments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.CREDIT)
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Créer la facture
+        Invoice invoice = Invoice.builder()
+                .invoiceNumber(invoiceNumber)
+                .order(order)
+                .customer(order.getCustomer())
+                .store(order.getStore())
+                .invoiceDate(LocalDateTime.now())
+                .paymentDueDate(LocalDateTime.now().plusDays(30))
+                .status(InvoiceStatus.ISSUED)
+                .paymentMethod(order.getPaymentMethod().name())
+                .notes("Facture générée automatiquement")
+                .isActive(true)
+                .build();
+
+        // Définir les montants
+        invoice.setSubtotal(order.getSubtotal());
+        invoice.setTaxAmount(order.getTaxAmount());
+        invoice.setDiscountAmount(order.getDiscountAmount());
+        invoice.setTotalAmount(order.getTotalAmount());
+        invoice.setAmountPaid(totalPaid);
+        invoice.setAmountDue(order.getTotalAmount().subtract(totalPaid));
+
+        // Sauvegarder la facture
+        Invoice savedInvoice = invoiceRepository.save(invoice);
+
+        // Générer le PDF
+        generateInvoicePdf(savedInvoice.getInvoiceId());
+
+        return invoiceMapper.toResponse(savedInvoice);
+    }
+
+    @Override
+    public InvoiceResponse getInvoiceById(UUID invoiceId) {
+        return null;
+    }
+
+    @Override
+    public InvoiceResponse getInvoiceByNumber(String invoiceNumber) {
+        return null;
+    }
+
+    @Override
+    public InvoiceResponse getInvoiceByOrder(UUID orderId) {
+        return null;
+    }
+
+    @Override
+    public List<InvoiceResponse> getInvoicesByCustomer(UUID customerId) {
+        return List.of();
+    }
+
+    @Override
+    public List<InvoiceResponse> getInvoicesByStore(UUID storeId) {
+        return List.of();
     }
 
     @Override

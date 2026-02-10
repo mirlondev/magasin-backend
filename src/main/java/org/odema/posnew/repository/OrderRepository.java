@@ -64,4 +64,39 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     boolean existsByOrderNumber(String orderNumber);
 
     List<Order> findByStore_StoreIdAndStatus(UUID store_storeId, OrderStatus status);
+
+
+    @Query("SELECT COUNT(p) FROM Payment p WHERE p.shiftReport.shiftReportId = :shiftId AND p.status = 'PAID'")
+    Integer countByShiftReport_ShiftReportIdAndStatus(@Param("shiftId") UUID shiftId);
+
+    @Query("SELECT DISTINCT o FROM Order o " +
+            "LEFT JOIN FETCH o.payments p " +
+            "LEFT JOIN FETCH o.items " +
+            "WHERE o.orderId = :orderId")
+    Optional<Order> findByIdWithPayments(@Param("orderId") UUID orderId);
+
+    /**
+     * Charge une commande avec tous ses détails
+     */
+    @Query("SELECT DISTINCT o FROM Order o " +
+            "LEFT JOIN FETCH o.payments " +
+            "LEFT JOIN FETCH o.items i " +
+            "LEFT JOIN FETCH i.product " +
+            "LEFT JOIN FETCH o.customer " +
+            "LEFT JOIN FETCH o.cashier " +
+            "LEFT JOIN FETCH o.store " +
+            "WHERE o.orderId = :orderId")
+    Optional<Order> findByIdWithFullDetails(@Param("orderId") UUID orderId);
+
+    @Query("""
+    SELECT DISTINCT o FROM Order o
+    JOIN o.payments p
+    WHERE o.cashier.userId = :cashierId
+      AND p.shiftReport.shiftReportId = :shiftId
+""")
+    List<Order> findCashierOrdersByShift(
+            @Param("cashierId") UUID cashierId,
+            @Param("shiftId") UUID shiftId
+    );
+
 }
