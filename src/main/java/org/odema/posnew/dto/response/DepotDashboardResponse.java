@@ -21,8 +21,8 @@ public record DepotDashboardResponse(
         Integer completedTransfers,
 
         // Mouvements de stock
-        Map<String, Integer> stockMovements,
-        Map<String, BigDecimal> transferValues,
+        Map<UUID, Integer> stockMovements,
+        Map<UUID, BigDecimal> transferValues,
 
         // Niveaux de stock
         Integer lowStockItems,

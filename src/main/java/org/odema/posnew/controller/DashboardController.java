@@ -6,11 +6,13 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.odema.posnew.dto.response.*;
 import org.odema.posnew.entity.enums.UserRole;
+import org.odema.posnew.security.CustomUserDetails;
 import org.odema.posnew.service.DashboardService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -32,15 +34,25 @@ public class DashboardController {
     @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER')")
     @Operation(summary = "Obtenir l'aperçu du dashboard selon le profil")
     public ResponseEntity<ApiResponse<DashboardOverviewResponse>> getDashboardOverview(
-            @AuthenticationPrincipal org.springframework.security.core.userdetails.UserDetails userDetails,
+            @AuthenticationPrincipal CustomUserDetails userDetails,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
 
-        UUID userId = extractUserId(userDetails); // À implémenter selon votre structure
+        UUID userId = userDetails.getUserId(); // À implémenter selon votre structure
         DashboardOverviewResponse response = dashboardService.getDashboardOverview(userId, startDate, endDate);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
+    @GetMapping("/stats")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER')")
+    public ResponseEntity<ApiResponse<DashboardOverviewResponse>> getDashboardStats(
+            @AuthenticationPrincipal CustomUserDetails userDetails,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
 
+        UUID userId = userDetails.getUserId();
+        DashboardOverviewResponse stats = dashboardService.getDashboardOverview(userId, startDate, endDate);
+        return ResponseEntity.ok(ApiResponse.success(stats));
+    }
     @GetMapping("/admin")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Dashboard Admin - Vue système")
@@ -81,9 +93,9 @@ public class DashboardController {
     @Operation(summary = "Dashboard Caissier")
     public ResponseEntity<ApiResponse<CashierDashboardResponse>> getCashierDashboard(
             @PathVariable UUID storeId,
-            @AuthenticationPrincipal org.springframework.security.core.userdetails.UserDetails userDetails) {
+            @AuthenticationPrincipal CustomUserDetails  userDetails) {
 
-        UUID cashierId = extractUserId(userDetails);
+        UUID cashierId = userDetails.getUserId();
         CashierDashboardResponse response = dashboardService.getCashierDashboard(storeId, cashierId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
@@ -141,16 +153,12 @@ public class DashboardController {
     @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER')")
     @Operation(summary = "Activités récentes")
     public ResponseEntity<ApiResponse<List<ActivityLogResponse>>> getRecentActivities(
-            @AuthenticationPrincipal org.springframework.security.core.userdetails.UserDetails userDetails) {
+            @AuthenticationPrincipal CustomUserDetails userDetails) {
 
-        UUID userId = extractUserId(userDetails);
+        UUID userId = userDetails.getUserId();
         List<ActivityLogResponse> response = dashboardService.getRecentActivities(userId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
-    private UUID extractUserId(org.springframework.security.core.userdetails.UserDetails userDetails) {
-        // Implémentez la logique pour extraire l'ID utilisateur
-        // Cela dépend de la façon dont vous stockez l'ID dans UserDetails
-        return UUID.fromString(userDetails.getUsername()); // Exemple
-    }
+
 }

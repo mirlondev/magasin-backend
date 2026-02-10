@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.dto.response.InvoiceResponse;
 import org.odema.posnew.entity.*;
 import org.odema.posnew.entity.enums.InvoiceStatus;
-import org.odema.posnew.entity.enums.OrderStatus;
 import org.odema.posnew.entity.enums.PaymentStatus;
 import org.odema.posnew.exception.BadRequestException;
 import org.odema.posnew.exception.NotFoundException;
@@ -17,7 +16,6 @@ import org.odema.posnew.repository.OrderRepository;
 import org.odema.posnew.repository.PaymentRepository;
 import org.odema.posnew.service.FileStorageService;
 import org.odema.posnew.service.InvoiceService;
-import org.odema.posnew.service.PaymentService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,9 +24,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -42,9 +37,10 @@ public class InvoiceServiceImpl implements InvoiceService {
 
     private final InvoiceRepository invoiceRepository;
     private final OrderRepository orderRepository;
-    private final FileStorageService fileStorageService;
+    private final PaymentRepository paymentRepository;
     private final InvoiceMapper invoiceMapper;
-private  final PaymentRepository paymentRepository;
+    private final FileStorageService fileStorageService;
+
     @Value("${app.file.directories.invoices:invoices}")
     private String invoicesDirectory;
 
@@ -63,27 +59,69 @@ private  final PaymentRepository paymentRepository;
     @Value("${app.company.tax-id:TAX-123456}")
     private String companyTaxId;
 
-    @Value("${app.invoice.logo-path:classpath:static/logo.png}")
-    private String logoPath;
-
-   /* @Override
+    @Override
     @Transactional
     public InvoiceResponse generateInvoice(UUID orderId) throws IOException {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdWithPayments(orderId)
                 .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        // Vérifier si la commande est complète
-        if (order.getStatus() != OrderStatus.COMPLETED) {
-            throw new BadRequestException("Seules les commandes complétées peuvent être facturées");
-        }
 
         // Vérifier si une facture existe déjà
         invoiceRepository.findByOrder_OrderId(orderId).ifPresent(invoice -> {
             throw new BadRequestException("Une facture existe déjà pour cette commande");
         });
 
+        // Pour les factures de crédit, un client est obligatoire
+        if (order.getCustomer() == null) {
+            throw new BadRequestException("Un client est requis pour générer une facture");
+        }
+
         // Générer le numéro de facture
         String invoiceNumber = generateInvoiceNumber();
+
+        // Récupérer les paiements
+        List<Payment> payments = order.getPayments();
+
+        // Calculer les montants basés sur les paiements
+        BigDecimal totalPaid = payments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.PAID)
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal creditAmount = payments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.CREDIT)
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Déterminer le statut
+        InvoiceStatus status;
+        if (totalPaid.compareTo(order.getTotalAmount()) >= 0) {
+            status = InvoiceStatus.PAID;
+        } else if (creditAmount.compareTo(BigDecimal.ZERO) > 0) {
+            status = InvoiceStatus.ISSUED;
+        } else {
+            status = InvoiceStatus.DRAFT;
+        }
+
+        // Extraire les notes de paiement crédit pour la date d'échéance
+        String creditNotes = payments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.CREDIT)
+                .map(Payment::getNotes)
+                .filter(notes -> notes != null && notes.contains("Échéance:"))
+                .findFirst()
+                .orElse(null);
+
+        LocalDateTime dueDate = LocalDateTime.now().plusDays(30); // Par défaut 30 jours
+        if (creditNotes != null && creditNotes.contains("Échéance:")) {
+            // Extraire la date d'échéance des notes si disponible
+            // Format: "Crédit - Échéance: dd/MM/yyyy"
+            try {
+                String dateStr = creditNotes.substring(creditNotes.indexOf("Échéance:") + 10).split("\\n")[0].trim();
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+                dueDate = LocalDate.parse(dateStr, formatter).atStartOfDay();
+            } catch (Exception e) {
+                log.warn("Could not parse due date from credit notes: {}", creditNotes);
+            }
+        }
 
         // Créer la facture
         Invoice invoice = Invoice.builder()
@@ -92,21 +130,27 @@ private  final PaymentRepository paymentRepository;
                 .customer(order.getCustomer())
                 .store(order.getStore())
                 .invoiceDate(LocalDateTime.now())
-                .paymentDueDate(LocalDateTime.now().plusDays(30)) // 30 jours pour payer
-                .status(InvoiceStatus.ISSUED)
+                .paymentDueDate(dueDate)
+                .status(status)
                 .paymentMethod(order.getPaymentMethod().name())
-                .notes("Facture générée automatiquement")
+                .notes(buildInvoiceNotes(order, creditNotes))
                 .isActive(true)
                 .build();
 
-        // Calculer les montants
-        invoice.calculateAmounts();
+        // Définir les montants
+        invoice.setSubtotal(order.getSubtotal());
+        invoice.setTaxAmount(order.getTaxAmount());
+        invoice.setDiscountAmount(order.getDiscountAmount());
+        invoice.setTotalAmount(order.getTotalAmount());
+        invoice.setAmountPaid(totalPaid);
+        invoice.setAmountDue(order.getTotalAmount().subtract(totalPaid).subtract(creditAmount));
 
         // Sauvegarder la facture
         Invoice savedInvoice = invoiceRepository.save(invoice);
 
         // Générer le PDF
-        generateInvoicePdf(savedInvoice.getInvoiceId());
+        byte[] pdfBytes = generateInvoicePdfBytes(savedInvoice);
+        saveInvoicePdf(savedInvoice, pdfBytes);
 
         return invoiceMapper.toResponse(savedInvoice);
     }
@@ -115,7 +159,6 @@ private  final PaymentRepository paymentRepository;
     public InvoiceResponse getInvoiceById(UUID invoiceId) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new NotFoundException("Facture non trouvée"));
-
         return invoiceMapper.toResponse(invoice);
     }
 
@@ -123,7 +166,6 @@ private  final PaymentRepository paymentRepository;
     public InvoiceResponse getInvoiceByNumber(String invoiceNumber) {
         Invoice invoice = invoiceRepository.findByInvoiceNumber(invoiceNumber)
                 .orElseThrow(() -> new NotFoundException("Facture non trouvée"));
-
         return invoiceMapper.toResponse(invoice);
     }
 
@@ -131,7 +173,6 @@ private  final PaymentRepository paymentRepository;
     public InvoiceResponse getInvoiceByOrder(UUID orderId) {
         Invoice invoice = invoiceRepository.findByOrder_OrderId(orderId)
                 .orElseThrow(() -> new NotFoundException("Aucune facture trouvée pour cette commande"));
-
         return invoiceMapper.toResponse(invoice);
     }
 
@@ -148,7 +189,7 @@ private  final PaymentRepository paymentRepository;
                 .map(invoiceMapper::toResponse)
                 .toList();
     }
-*/
+
     @Override
     public List<InvoiceResponse> getInvoicesByStatus(String status) {
         try {
@@ -173,16 +214,13 @@ private  final PaymentRepository paymentRepository;
 
     @Override
     public byte[] generateInvoicePdf(UUID invoiceId) throws IOException {
-        return new byte[0];
+        Invoice invoice = invoiceRepository.findById(invoiceId)
+                .orElseThrow(() -> new NotFoundException("Facture non trouvée"));
+
+        return generateInvoicePdfBytes(invoice);
     }
 
     @Override
-    public String getInvoicePdfUrl(UUID invoiceId) {
-        return "";
-    }
-
-
-  /*  @Override
     public String getInvoicePdfUrl(UUID invoiceId) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new NotFoundException("Facture non trouvée"));
@@ -192,93 +230,6 @@ private  final PaymentRepository paymentRepository;
         }
 
         return fileStorageService.getFileUrl(invoice.getPdfFilename(), invoicesDirectory);
-    }
-*/
-
-    // Dans InvoiceServiceImpl, modifier la méthode generateInvoice
-
-    @Override
-    @Transactional
-    public InvoiceResponse generateInvoice(UUID orderId) throws IOException {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        // Vérifier si une facture existe déjà
-        invoiceRepository.findByOrder_OrderId(orderId).ifPresent(invoice -> {
-            throw new BadRequestException("Une facture existe déjà pour cette commande");
-        });
-
-        // Générer le numéro de facture
-        String invoiceNumber = generateInvoiceNumber();
-
-        // Récupérer les paiements
-        List<Payment> payments = paymentRepository.findByOrder_OrderId(orderId);
-
-        // Calculer les montants basés sur les paiements
-        BigDecimal totalPaid = payments.stream()
-                .filter(p -> p.getStatus() == PaymentStatus.PAID)
-                .map(Payment::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal creditAmount = payments.stream()
-                .filter(p -> p.getStatus() == PaymentStatus.CREDIT)
-                .map(Payment::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // Créer la facture
-        Invoice invoice = Invoice.builder()
-                .invoiceNumber(invoiceNumber)
-                .order(order)
-                .customer(order.getCustomer())
-                .store(order.getStore())
-                .invoiceDate(LocalDateTime.now())
-                .paymentDueDate(LocalDateTime.now().plusDays(30))
-                .status(InvoiceStatus.ISSUED)
-                .paymentMethod(order.getPaymentMethod().name())
-                .notes("Facture générée automatiquement")
-                .isActive(true)
-                .build();
-
-        // Définir les montants
-        invoice.setSubtotal(order.getSubtotal());
-        invoice.setTaxAmount(order.getTaxAmount());
-        invoice.setDiscountAmount(order.getDiscountAmount());
-        invoice.setTotalAmount(order.getTotalAmount());
-        invoice.setAmountPaid(totalPaid);
-        invoice.setAmountDue(order.getTotalAmount().subtract(totalPaid));
-
-        // Sauvegarder la facture
-        Invoice savedInvoice = invoiceRepository.save(invoice);
-
-        // Générer le PDF
-        generateInvoicePdf(savedInvoice.getInvoiceId());
-
-        return invoiceMapper.toResponse(savedInvoice);
-    }
-
-    @Override
-    public InvoiceResponse getInvoiceById(UUID invoiceId) {
-        return null;
-    }
-
-    @Override
-    public InvoiceResponse getInvoiceByNumber(String invoiceNumber) {
-        return null;
-    }
-
-    @Override
-    public InvoiceResponse getInvoiceByOrder(UUID orderId) {
-        return null;
-    }
-
-    @Override
-    public List<InvoiceResponse> getInvoicesByCustomer(UUID customerId) {
-        return List.of();
-    }
-
-    @Override
-    public List<InvoiceResponse> getInvoicesByStore(UUID storeId) {
-        return List.of();
     }
 
     @Override
@@ -338,7 +289,6 @@ private  final PaymentRepository paymentRepository;
 
     @Override
     public void sendInvoiceByEmail(UUID invoiceId, String email) throws Exception {
-        // Implémentation simplifiée - dans une vraie application, utiliser JavaMail
         log.info("Envoi de la facture {} à l'adresse {}", invoiceId, email);
         // TODO: Implémenter l'envoi d'email avec pièce jointe
     }
@@ -356,11 +306,47 @@ private  final PaymentRepository paymentRepository;
         return invoiceRepository.getTotalOutstandingAmount();
     }
 
-    // Méthodes privées pour la génération de PDF
+    // Private helper methods
+
+    private byte[] generateInvoicePdfBytes(Invoice invoice) throws IOException {
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            Document document = new Document(PageSize.A4);
+            PdfWriter writer = PdfWriter.getInstance(document, baos);
+
+            // Add header/footer
+            writer.setPageEvent(new InvoiceHeaderFooter());
+
+            document.open();
+
+            // Add company header
+            addCompanyHeader(document);
+
+            // Add invoice info
+            addInvoiceInfo(document, invoice);
+
+            // Add customer info
+            addCustomerInfo(document, invoice.getCustomer());
+
+            // Add items table
+            addItemsTable(document, invoice.getOrder());
+
+            // Add totals
+            addTotals(document, invoice);
+
+            // Add notes and terms
+            addNotesAndTerms(document, invoice);
+
+            document.close();
+            return baos.toByteArray();
+
+        } catch (DocumentException e) {
+            log.error("Error generating invoice PDF", e);
+            throw new IOException("Error generating invoice PDF", e);
+        }
+    }
 
     private void addCompanyHeader(Document document) throws DocumentException {
         try {
-            // Logo
             InputStream logoStream = getClass().getClassLoader().getResourceAsStream("static/logo.png");
             if (logoStream != null) {
                 Image logo = Image.getInstance(logoStream.readAllBytes());
@@ -372,15 +358,15 @@ private  final PaymentRepository paymentRepository;
             log.warn("Logo non trouvé, continuation sans logo");
         }
 
-        // Nom de l'entreprise
         Font companyFont = new Font(Font.FontFamily.HELVETICA, 20, Font.BOLD);
         Paragraph company = new Paragraph(companyName, companyFont);
         company.setAlignment(Element.ALIGN_LEFT);
         document.add(company);
 
-        // Adresse
         Font addressFont = new Font(Font.FontFamily.HELVETICA, 10);
-        Paragraph address = new Paragraph(companyAddress + "\n" + companyPhone + "\n" + companyEmail, addressFont);
+        Paragraph address = new Paragraph(
+                companyAddress + "\n" + companyPhone + "\n" + companyEmail + "\n" + "NIF: " + companyTaxId,
+                addressFont);
         address.setAlignment(Element.ALIGN_LEFT);
         document.add(address);
 
@@ -394,30 +380,26 @@ private  final PaymentRepository paymentRepository;
         document.add(title);
 
         Font infoFont = new Font(Font.FontFamily.HELVETICA, 10);
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
         PdfPTable table = new PdfPTable(2);
         table.setWidthPercentage(100);
         table.setSpacingBefore(10f);
         table.setSpacingAfter(10f);
 
-        // Numéro de facture
         table.addCell(createCell("Numéro de facture:", true, infoFont));
         table.addCell(createCell(invoice.getInvoiceNumber(), false, infoFont));
 
-        // Date de facturation
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
         table.addCell(createCell("Date de facturation:", true, infoFont));
         table.addCell(createCell(invoice.getInvoiceDate().format(formatter), false, infoFont));
 
-        // Date d'échéance
         if (invoice.getPaymentDueDate() != null) {
             table.addCell(createCell("Date d'échéance:", true, infoFont));
             table.addCell(createCell(invoice.getPaymentDueDate().format(formatter), false, infoFont));
         }
 
-        // Statut
         table.addCell(createCell("Statut:", true, infoFont));
-        table.addCell(createCell(invoice.getStatus().name(), false, infoFont));
+        table.addCell(createCell(getStatusLabel(invoice.getStatus()), false, infoFont));
 
         document.add(table);
         document.add(Chunk.NEWLINE);
@@ -463,14 +445,12 @@ private  final PaymentRepository paymentRepository;
         table.setWidthPercentage(100);
         table.setWidths(new float[]{3, 1, 2, 2, 2});
 
-        // En-tête du tableau
         table.addCell(createCell("Description", true, tableFont));
         table.addCell(createCell("Qté", true, tableFont));
         table.addCell(createCell("Prix unitaire", true, tableFont));
         table.addCell(createCell("Remise", true, tableFont));
         table.addCell(createCell("Total", true, tableFont));
 
-        // Articles
         for (OrderItem item : order.getItems()) {
             table.addCell(createCell(item.getProduct().getName(), false, tableFont));
             table.addCell(createCell(item.getQuantity().toString(), false, tableFont));
@@ -538,18 +518,46 @@ private  final PaymentRepository paymentRepository;
         PdfPCell cell = new PdfPCell(new Phrase(text, font));
         cell.setHorizontalAlignment(Element.ALIGN_LEFT);
         cell.setPadding(5);
+        cell.setBorder(Rectangle.NO_BORDER);
 
         if (isHeader) {
             cell.setBackgroundColor(BaseColor.LIGHT_GRAY);
             cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+            cell.setBorder(Rectangle.BOX);
         }
 
         return cell;
     }
 
     private String formatCurrency(BigDecimal amount) {
-        if (amount == null) return "0,00 FCFA";
-        return String.format("%,.2f FCFA", amount);
+        if (amount == null) return "0 FCFA";
+        return String.format("%,.0f FCFA", amount);
+    }
+
+    private String getStatusLabel(InvoiceStatus status) {
+        return switch (status) {
+            case DRAFT -> "Brouillon";
+            case ISSUED -> "Émise";
+            case PAID -> "Payée";
+            case OVERDUE -> "En retard";
+            case CANCELLED -> "Annulée";
+            default -> status.name();
+        };
+    }
+
+    private String buildInvoiceNotes(Order order, String creditNotes) {
+        StringBuilder notes = new StringBuilder();
+
+        if (creditNotes != null) {
+            notes.append("Vente à crédit\n");
+            notes.append(creditNotes).append("\n");
+        }
+
+        if (order.getNotes() != null) {
+            notes.append(order.getNotes());
+        }
+
+        return notes.toString().trim();
     }
 
     private String generateInvoiceNumber() {
@@ -562,8 +570,6 @@ private  final PaymentRepository paymentRepository;
     }
 
     private Long getNextInvoiceSequence() {
-        // Dans une vraie application, utiliser une séquence de base de données
-        LocalDate today = LocalDate.now();
         long count = invoiceRepository.count();
         return count + 1;
     }
@@ -571,16 +577,13 @@ private  final PaymentRepository paymentRepository;
     private void saveInvoicePdf(Invoice invoice, byte[] pdfBytes) throws IOException {
         String filename = invoice.getInvoiceNumber() + ".pdf";
 
-        // Stocker le fichier
         fileStorageService.storeFileFromBytes(pdfBytes, filename, invoicesDirectory);
 
-        // Mettre à jour l'entité
         invoice.setPdfFilename(filename);
         invoice.setPdfPath(invoicesDirectory + "/" + filename);
         invoiceRepository.save(invoice);
     }
 
-    // Classe interne pour l'en-tête et le pied de page
     private class InvoiceHeaderFooter extends PdfPageEventHelper {
         private PdfTemplate total;
         private BaseFont baseFont;
@@ -605,15 +608,12 @@ private  final PaymentRepository paymentRepository;
                 footer.getDefaultCell().setFixedHeight(20);
                 footer.getDefaultCell().setBorder(Rectangle.TOP);
 
-                // Numéro de page
                 footer.addCell(new Phrase(String.format("Page %d", writer.getPageNumber()),
                         new Font(baseFont, 8)));
 
-                // Copyright
                 footer.addCell(new Phrase(companyName + " © " + java.time.Year.now().getValue(),
                         new Font(baseFont, 8)));
 
-                // Numéro de page avec template
                 PdfPCell cell = new PdfPCell(Image.getInstance(total));
                 cell.setBorder(Rectangle.TOP);
                 footer.addCell(cell);

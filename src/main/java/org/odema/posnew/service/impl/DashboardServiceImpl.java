@@ -41,6 +41,16 @@ public class DashboardServiceImpl implements DashboardService {
         UserRole role = user.getUserRole();
         Store assignedStore = user.getAssignedStore();
 
+// ADMIN → vue globale
+        if (role == UserRole.ADMIN) {
+            return buildAdminOverview(user, startDate, endDate);
+        }
+
+// NON-ADMIN → store obligatoire
+        if (assignedStore == null) {
+            throw new IllegalStateException("Utilisateur sans store assigné");
+        }
+
         // Définir les dates par défaut
         if (startDate == null) startDate = LocalDate.now().minusDays(30);
         if (endDate == null) endDate = LocalDate.now();
@@ -95,9 +105,10 @@ public class DashboardServiceImpl implements DashboardService {
         // Données spécifiques au rôle
         Object roleSpecificData = getRoleSpecificData(role, assignedStore, startDateTime, endDateTime);
 
+        assert assignedStore != null;
         return new DashboardOverviewResponse(
                 role,
-                assignedStore != null ? assignedStore.getName() : "Système",
+                assignedStore.getName(),
                 startDate,
                 endDate,
                 totalSales,
@@ -214,7 +225,7 @@ public class DashboardServiceImpl implements DashboardService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // Obtenir les mouvements de stock
-        Map<String, Integer> stockMovements = getStockMovements(storeId, startDateTime, endDateTime);
+        Map<UUID, Integer> stockMovements = getStockMovements(storeId, startDateTime, endDateTime);
 
         // Compter les alertes de stock
         List<InventoryAlertResponse> alerts = getInventoryAlerts(storeId, 10);
@@ -612,11 +623,11 @@ public class DashboardServiceImpl implements DashboardService {
         return BigDecimal.ZERO;
     }
 
-    private Map<String, Integer> getStockMovements(UUID storeId, LocalDateTime start, LocalDateTime end) {
+    private Map<UUID, Integer> getStockMovements(UUID storeId, LocalDateTime start, LocalDateTime end) {
         return Collections.emptyMap();
     }
 
-    private Map<String, BigDecimal> getTransferValues(UUID storeId, LocalDateTime start, LocalDateTime end) {
+    private Map<UUID, BigDecimal> getTransferValues(UUID storeId, LocalDateTime start, LocalDateTime end) {
         return Collections.emptyMap();
     }
 
@@ -740,4 +751,46 @@ public class DashboardServiceImpl implements DashboardService {
     private List<OrderAlertResponse> getPendingOrders(Store store) {
         return Collections.emptyList();
     }
+
+
+
+    private DashboardOverviewResponse buildAdminOverview(
+            User user,
+            LocalDate startDate,
+            LocalDate endDate
+    ) {
+        if (startDate == null) startDate = LocalDate.now().minusDays(30);
+        if (endDate == null) endDate = LocalDate.now();
+
+        LocalDateTime start = startDate.atStartOfDay();
+        LocalDateTime end = endDate.atTime(23, 59, 59);
+
+        BigDecimal totalSales = getTotalSales(null, start, end);
+        Integer totalOrders = getOrderCount(null, start, end);
+        Integer totalCustomers = getCustomerCount(null, start, end);
+        Integer totalProducts = getProductCount(null);
+
+        return new DashboardOverviewResponse(
+                UserRole.ADMIN,
+                "GLOBAL",                // ✅ pas de store
+                startDate,
+                endDate,
+                totalSales,
+                totalOrders,
+                totalCustomers,
+                totalProducts,
+                userRepository.findAll().size(),
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                Map.of(),
+                Map.of(),
+                Map.of(),
+                getInventoryAlerts(null, 10), // tous les stores
+                List.of(),
+                getRecentActivities(user.getUserId()),
+                getAdminDashboard(startDate, endDate)
+        );
+    }
+
 }

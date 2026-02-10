@@ -41,6 +41,8 @@ public class OrderServiceImpl implements OrderService {
     private final InventoryRepository inventoryRepository;
     private final OrderMapper orderMapper;
     private final PaymentService paymentService;
+    private final ShiftReportRepository shiftReportRepository;
+    private final PaymentRepository paymentRepository;
 
 
     @Override
@@ -202,9 +204,6 @@ public class OrderServiceImpl implements OrderService {
                 .toList();
     }
 
-//new methodes
-
-
     @Override
     @Transactional
     public OrderResponse createOrder(OrderRequest request, UUID cashierId) throws UnauthorizedException {
@@ -234,6 +233,7 @@ public class OrderServiceImpl implements OrderService {
         // Créer la commande avec le nouveau système
         PaymentMethod paymentMethod1 = request.paymentMethod() != null ?
                 request.paymentMethod() : PaymentMethod.CASH;
+
         Order order = Order.builder()
                 .orderNumber(orderNumber)
                 .customer(customer)
@@ -286,24 +286,51 @@ public class OrderServiceImpl implements OrderService {
         // Calculer les totaux
         order.calculateTotals();
 
-        // Sauvegarder la commande
+        // Sauvegarder la commande AVANT d'ajouter le paiement
         Order savedOrder = orderRepository.save(order);
 
-        // Si un paiement initial est spécifié, le traiter
+        // Si un paiement initial est spécifié, le créer directement
         if (request.amountPaid() != null && request.amountPaid().compareTo(BigDecimal.ZERO) > 0) {
             PaymentMethod paymentMethod = paymentMethod1;
 
-            PaymentRequest paymentRequest = new PaymentRequest(
-                    paymentMethod,
-                    request.amountPaid(),
-                    "Paiement initial lors de la création de la commande"
-            );
+            // Récupérer le shift report ouvert
+            ShiftReport shift = shiftReportRepository.findOpenShiftByCashier(cashierId)
+                    .orElse(null);
 
-            paymentService.processPayment(savedOrder.getOrderId(), paymentRequest, cashier.getUserId());
+            // Créer le paiement directement (sans passer par PaymentService pour éviter la validation)
+            Payment payment = Payment.builder()
+                    .order(savedOrder)
+                    .method(paymentMethod)
+                    .amount(request.amountPaid())
+                    .cashier(cashier)
+                    .shiftReport(shift)
+                    .status(paymentMethod == PaymentMethod.CREDIT ?
+                            PaymentStatus.CREDIT : PaymentStatus.PAID)
+                    .notes("Paiement initial lors de la création de la commande")
+                    .isActive(true)
+                    .build();
 
-            // Recharger la commande pour avoir les paiements à jour
-            savedOrder = orderRepository.findById(savedOrder.getOrderId())
-                    .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+            // Sauvegarder le paiement
+            Payment savedPayment = paymentRepository.save(payment);
+
+            // Ajouter le paiement à la commande
+            savedOrder.addPayment(savedPayment);
+
+            // Mettre à jour le shift report (sauf pour crédit)
+            if (shift != null && paymentMethod != PaymentMethod.CREDIT) {
+                shift.addSale(request.amountPaid());
+                shiftReportRepository.save(shift);
+            }
+
+            // Si la commande est maintenant complètement payée, la marquer comme terminée
+            if (savedOrder.getPaymentStatus() == PaymentStatus.PAID &&
+                    savedOrder.getStatus() == OrderStatus.PENDING) {
+                savedOrder.setStatus(OrderStatus.COMPLETED);
+                savedOrder.setCompletedAt(LocalDateTime.now());
+            }
+
+            // Sauvegarder la commande mise à jour
+            savedOrder = orderRepository.save(savedOrder);
         }
 
         // Mettre à jour le stock
@@ -318,7 +345,6 @@ public class OrderServiceImpl implements OrderService {
         return orderMapper.toResponse(savedOrder);
     }
 
-    // Supprimer l'ancienne méthode processPayment et la remplacer par
     @Transactional
     @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','CASHIER')")
     @Override
@@ -329,7 +355,6 @@ public class OrderServiceImpl implements OrderService {
         if (order.getStatus() == OrderStatus.CANCELLED) {
             throw new BadRequestException("Impossible d'ajouter un paiement à une commande annulée");
         }
-
 
         // Traiter le paiement via le PaymentService
         paymentService.processPayment(orderId, paymentRequest, order.getCashier().getUserId());
@@ -365,7 +390,6 @@ public class OrderServiceImpl implements OrderService {
         return orderMapper.toResponse(updatedOrder);
     }
 
-    // Mettre à jour la méthode getOrderById pour inclure les paiements
     @Override
     public OrderResponse getOrderById(UUID orderId) {
         Order order = orderRepository.findByIdWithPayments(orderId)
@@ -373,6 +397,7 @@ public class OrderServiceImpl implements OrderService {
 
         return orderMapper.toResponse(order);
     }
+
     @Override
     public BigDecimal getTotalSalesByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate) {
         if (startDate == null || endDate == null) {
@@ -389,14 +414,9 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional(readOnly = true)
     public List<OrderResponse> findCashierOrdersByShift(UUID cashierId, UUID shiftId) {
-
         // 1. Vérifier le caissier
         User cashier = userRepository.findById(cashierId)
                 .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
-
-//        if (cashier.getUserRole() != UserRole.CASHIER) {
-//            throw new BadRequestException("L'utilisateur n'est pas un caissier");
-//        }
 
         // 2. Récupérer les commandes du caissier pour ce shift
         List<Order> orders = orderRepository
@@ -407,7 +427,6 @@ public class OrderServiceImpl implements OrderService {
                 .map(orderMapper::toResponse)
                 .toList();
     }
-
 
     @Override
     public Integer getOrderCountByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate) {
@@ -432,15 +451,13 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Page<OrderResponse> getOrders(UUID userId, Pageable pageable) {
-
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("Utilisateur non trouvé"));
 
         // ADMIN → tout
         if (user.getUserRole() == UserRole.ADMIN) {
             return orderRepository.findAll(pageable)
-                    .map(orderMapper::toResponse)
-                 ;
+                    .map(orderMapper::toResponse);
         }
 
         // STORE ADMIN → commandes du magasin
@@ -459,7 +476,6 @@ public class OrderServiceImpl implements OrderService {
 
         throw new BadRequestException("Rôle non autorisé");
     }
-
 
     private String generateOrderNumber() {
         String prefix = "ORD";
