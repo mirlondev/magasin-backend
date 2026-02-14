@@ -82,6 +82,7 @@ public class SecurityConfig {
                                 "ADMIN", "SHOP_MANAGER", "CASHIER")
                         .requestMatchers(HttpMethod.DELETE, "/api/orders/**").hasAnyRole(
                                 "ADMIN", "SHOP_MANAGER")
+                        .requestMatchers("/receipts/**").authenticated()
 
                         // API Refunds
                         .requestMatchers(HttpMethod.GET, "/api/refunds/**").hasAnyRole(

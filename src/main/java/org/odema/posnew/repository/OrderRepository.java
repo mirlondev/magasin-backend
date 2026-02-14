@@ -69,11 +69,13 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("SELECT COUNT(p) FROM Payment p WHERE p.shiftReport.shiftReportId = :shiftId AND p.status = 'PAID'")
     Integer countByShiftReport_ShiftReportIdAndStatus(@Param("shiftId") UUID shiftId);
 
-    @Query("SELECT DISTINCT o FROM Order o " +
-            "LEFT JOIN FETCH o.payments p " +
-            "LEFT JOIN FETCH o.items " +
-            "WHERE o.orderId = :orderId")
-    Optional<Order> findByIdWithPayments(@Param("orderId") UUID orderId);
+//    @Query("SELECT DISTINCT o FROM Order o " +
+//            "LEFT JOIN FETCH o.payments p " +
+//            "LEFT JOIN FETCH o.items " +
+//            "WHERE o.orderId = :orderId")
+//    Optional<Order> findByIdWithPayments(@Param("orderId") UUID orderId);
+@Query("SELECT o FROM Order o LEFT JOIN FETCH o.payments WHERE o.orderId = :orderId")
+Optional<Order> findByIdWithPayments(@Param("orderId") UUID orderId);
 
     /**
      * Charge une commande avec tous ses détails

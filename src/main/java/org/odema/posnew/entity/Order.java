@@ -3,6 +3,8 @@ package org.odema.posnew.entity;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.Fetch;
+import org.hibernate.annotations.FetchMode;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.odema.posnew.entity.enums.OrderStatus;
 import org.odema.posnew.entity.enums.PaymentMethod;
@@ -43,15 +45,27 @@ public class Order {
     @JoinColumn(name = "store_id", nullable = false)
     private Store store;
 
+//    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+//    @Builder.Default
+//    private List<OrderItem> items = new ArrayList<>();
+
+    // ============ NOUVELLE RELATION PAYMENTS ============
+//    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+//    @Builder.Default
+//    private List<Payment> payments = new ArrayList<>();
+//    // ====================================================
+
+    //new
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Fetch(FetchMode.SUBSELECT)
     @Builder.Default
     private List<OrderItem> items = new ArrayList<>();
 
-    // ============ NOUVELLE RELATION PAYMENTS ============
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Fetch(FetchMode.SUBSELECT)
     @Builder.Default
     private List<Payment> payments = new ArrayList<>();
-    // ====================================================
+
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal subtotal = BigDecimal.ZERO;
