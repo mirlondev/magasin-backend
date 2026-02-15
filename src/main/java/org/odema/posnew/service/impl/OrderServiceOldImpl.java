@@ -1,14 +1,10 @@
 package org.odema.posnew.service.impl;
 
-
-import lombok.extern.slf4j.Slf4j;
-import org.odema.posnew.design.factory.SaleStrategyFactory;
-import org.odema.posnew.design.strategy.SaleStrategy;
-import org.odema.posnew.design.template.OrderServiceTemplate;
+import lombok.RequiredArgsConstructor;
 import org.odema.posnew.dto.request.OrderItemRequest;
 import org.odema.posnew.dto.request.OrderRequest;
-import org.odema.posnew.dto.request.PaymentRequest;
 import org.odema.posnew.dto.response.OrderResponse;
+import org.odema.posnew.dto.request.PaymentRequest;
 import org.odema.posnew.entity.*;
 import org.odema.posnew.entity.enums.OrderStatus;
 import org.odema.posnew.entity.enums.PaymentMethod;
@@ -32,109 +28,21 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-@Slf4j
 @Service
-public class OrderServiceImpl extends OrderServiceTemplate implements OrderService {
+@RequiredArgsConstructor
+public class OrderServiceOldImpl implements OrderService {
 
+    private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
+    private final CustomerRepository customerRepository;
+    private final UserRepository userRepository;
+    private final StoreRepository storeRepository;
+    private final ProductRepository productRepository;
+    private final InventoryRepository inventoryRepository;
+    private final OrderMapper orderMapper;
     private final PaymentService paymentService;
-    private final PaymentRepository paymentRepository;
     private final ShiftReportRepository shiftReportRepository;
-
-    public OrderServiceImpl(
-            OrderRepository orderRepository,
-            OrderItemRepository orderItemRepository,
-            CustomerRepository customerRepository,
-            UserRepository userRepository,
-            StoreRepository storeRepository,
-            ProductRepository productRepository,
-            InventoryRepository inventoryRepository,
-            OrderMapper orderMapper,
-            SaleStrategyFactory strategyFactory,
-            PaymentService paymentService,
-            PaymentRepository paymentRepository,
-            ShiftReportRepository shiftReportRepository
-    ) {
-        super(orderRepository, orderItemRepository, customerRepository,
-                userRepository, storeRepository, productRepository,
-                inventoryRepository, orderMapper, strategyFactory);
-        this.paymentService = paymentService;
-        this.paymentRepository = paymentRepository;
-        this.shiftReportRepository = shiftReportRepository;
-    }
-
-    /**
-     * Surcharge du hook pour ajouter paiement initial si fourni
-     */
-    @Override
-    protected Order afterOrderCreation(Order order, OrderRequest request,
-                                       SaleStrategy strategy) {
-        // Si un paiement initial est fourni
-        if (request.amountPaid() != null &&
-                request.amountPaid().compareTo(BigDecimal.ZERO) > 0) {
-
-            PaymentMethod method = request.paymentMethod() != null
-                    ? request.paymentMethod() : PaymentMethod.CASH;
-
-            return addInitialPayment(order, method, request.amountPaid());
-        }
-
-        return order;
-    }
-
-    /**
-     * Ajouter un paiement initial
-     */
-    private Order addInitialPayment(Order order, PaymentMethod method,
-                                    BigDecimal amount) {
-        log.info("Ajout paiement initial: {} {} pour commande {}",
-                amount, method, order.getOrderNumber());
-
-        ShiftReport shift = shiftReportRepository
-                .findOpenShiftByCashier(order.getCashier().getUserId())
-                .orElse(null);
-
-        Payment payment = Payment.builder()
-                .order(order)
-                .method(method)
-                .amount(amount)
-                .cashier(order.getCashier())
-                .shiftReport(shift)
-                .status(method == PaymentMethod.CREDIT
-                        ? PaymentStatus.CREDIT : PaymentStatus.PAID)
-                .notes("Paiement initial lors de la création")
-                .isActive(true)
-                .build();
-
-        Payment savedPayment = paymentRepository.save(payment);
-        order.addPayment(savedPayment);
-
-        // Mettre à jour shift si applicable
-        if (shift != null && method != PaymentMethod.CREDIT) {
-            shift.addSale(amount);
-            shiftReportRepository.save(shift);
-        }
-
-        return order;
-    }
-
-    @Override
-    @Transactional
-    public OrderResponse addPaymentToOrder(UUID orderId, PaymentRequest paymentRequest)
-            throws UnauthorizedException {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        paymentService.processPayment(orderId, paymentRequest,
-                order.getCashier().getUserId());
-
-        Order updatedOrder = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        return orderMapper.toResponse(updatedOrder);
-    }
-
-    // ... autres méthodes (getOrderById, updateOrder, etc.)
-
+    private final PaymentRepository paymentRepository;
 
 
     @Override
@@ -424,6 +332,26 @@ public class OrderServiceImpl extends OrderServiceTemplate implements OrderServi
         order.addItem(orderItem);
     }
 
+    @Transactional
+    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','CASHIER')")
+    @Override
+    public OrderResponse addPaymentToOrder(UUID orderId, PaymentRequest paymentRequest) throws UnauthorizedException {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            throw new BadRequestException("Impossible d'ajouter un paiement à une commande annulée");
+        }
+
+        // Traiter le paiement via le PaymentService
+        paymentService.processPayment(orderId, paymentRequest, order.getCashier().getUserId());
+
+        // Recharger la commande mise à jour
+        Order updatedOrder = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+
+        return orderMapper.toResponse(updatedOrder);
+    }
 
     @Override
     @Transactional

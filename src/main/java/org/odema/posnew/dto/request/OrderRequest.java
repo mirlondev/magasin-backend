@@ -1,6 +1,7 @@
 package org.odema.posnew.dto.request;
 
 import jakarta.validation.constraints.NotNull;
+import org.odema.posnew.entity.enums.OrderType;
 import org.odema.posnew.entity.enums.PaymentMethod;
 
 import java.math.BigDecimal;
@@ -26,6 +27,7 @@ public record OrderRequest(
 
         Boolean isTaxable,
 
-        String notes
+        String notes,
+        OrderType   orderType
 ) {
 }
