@@ -2,6 +2,7 @@ package org.odema.posnew.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import lombok.extern.slf4j.Slf4j;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.Fetch;
 import org.hibernate.annotations.FetchMode;
@@ -17,7 +18,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-
+@Slf4j
 @Entity
 @Table(name = "orders")
 @Setter
@@ -47,17 +48,6 @@ public class Order {
     @JoinColumn(name = "store_id", nullable = false)
     private Store store;
 
-//    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
-//    @Builder.Default
-//    private List<OrderItem> items = new ArrayList<>();
-
-    // ============ NOUVELLE RELATION PAYMENTS ============
-//    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
-//    @Builder.Default
-//    private List<Payment> payments = new ArrayList<>();
-//    // ====================================================
-
-    //new
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     @Fetch(FetchMode.SUBSELECT)
     @Builder.Default
@@ -67,7 +57,6 @@ public class Order {
     @Fetch(FetchMode.SUBSELECT)
     @Builder.Default
     private List<Payment> payments = new ArrayList<>();
-
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal subtotal = BigDecimal.ZERO;
@@ -81,8 +70,7 @@ public class Order {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
-    // ⚠️ DEPRECATED - Garder pour compatibilité temporaire
-    // À terme, utiliser getTotalPaid() calculé depuis payments
+    // ⚠️ DEPRECATED - For backward compatibility only
     @Column(precision = 12, scale = 2)
     @Deprecated
     private BigDecimal amountPaid = BigDecimal.ZERO;
@@ -94,7 +82,7 @@ public class Order {
     @Column(nullable = false, length = 20)
     private OrderStatus status = OrderStatus.PENDING;
 
-    // ⚠️ DEPRECATED - Le payment method est maintenant dans Payment
+    // ⚠️ DEPRECATED - Use Payment.method instead
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
     @Deprecated
@@ -135,7 +123,6 @@ public class Order {
     @Builder.Default
     private List<Refund> refunds = new ArrayList<>();
 
-
     @PrePersist
     public void initializeDefaults() {
         if (items == null) items = new ArrayList<>();
@@ -151,13 +138,62 @@ public class Order {
         if (isTaxable == null) isTaxable = true;
     }
 
-    // ============ NOUVELLES MÉTHODES DE PAIEMENT ============
-
     /**
-     * Calcule le montant total payé (CASH, MOBILE, CARD)
-     * Exclut les crédits
+     * Calculate all totals from items - NOT from payments!
+     * This ensures order amount is based on products, not money received
      */
-    public BigDecimal getTotalPaid() {
+    public void calculateTotals() {
+        if (this.items == null) {
+            this.items = new ArrayList<>();
+        }
+
+        // Initialize defaults
+        if (this.discountAmount == null) this.discountAmount = BigDecimal.ZERO;
+        if (this.taxRate == null) this.taxRate = BigDecimal.ZERO;
+
+        // Calculate subtotal from items (ensuring each item has calculated prices)
+        this.subtotal = items.stream()
+                .map(item -> {
+                    if (item.getFinalPrice() == null) {
+                        item.calculatePrices();
+                    }
+                    return item.getFinalPrice();
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // Calculate tax
+        if (Boolean.TRUE.equals(isTaxable) && taxRate.compareTo(BigDecimal.ZERO) > 0) {
+            this.taxAmount = subtotal.multiply(taxRate)
+                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        } else {
+            this.taxAmount = BigDecimal.ZERO;
+        }
+
+        // Calculate total: subtotal + tax - discount
+        this.totalAmount = subtotal.add(taxAmount).subtract(discountAmount);
+
+        // Ensure total is never negative
+        if (this.totalAmount.compareTo(BigDecimal.ZERO) < 0) {
+            this.totalAmount = BigDecimal.ZERO;
+        }
+
+        // Calculate change based on payments received (for cash handling)
+        BigDecimal totalPaid = getTotalPaid();
+        if (totalPaid.compareTo(BigDecimal.ZERO) > 0 && totalAmount.compareTo(BigDecimal.ZERO) > 0) {
+            this.changeAmount = totalPaid.subtract(totalAmount);
+            if (this.changeAmount.compareTo(BigDecimal.ZERO) < 0) {
+                this.changeAmount = BigDecimal.ZERO;
+            }
+        } else {
+            this.changeAmount = BigDecimal.ZERO;
+        }
+
+        // Update deprecated amountPaid for compatibility
+        this.amountPaid = totalPaid;
+    }
+
+
+    /*public BigDecimal getTotalPaid() {
         if (payments == null || payments.isEmpty()) {
             return BigDecimal.ZERO;
         }
@@ -166,10 +202,25 @@ public class Order {
                 .filter(p -> p.getMethod() != PaymentMethod.CREDIT)
                 .map(Payment::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
+    }*/
     /**
-     * Calcule le montant total en crédit
+     * Calculate total paid from payments (excluding credits)
+     */
+    public BigDecimal getTotalPaid() {
+        if (payments == null || payments.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal total = payments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.PAID)  // Only PAID status
+                .filter(p -> p.getMethod() != PaymentMethod.CREDIT) // Exclude CREDIT method
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        log.debug("Total paid calculated: {} from {} payments", total, payments.size());
+        return total;
+    }
+    /**
+     * Calculate total credit from payments
      */
     public BigDecimal getTotalCredit() {
         if (payments == null || payments.isEmpty()) {
@@ -183,7 +234,7 @@ public class Order {
     }
 
     /**
-     * Calcule le montant restant à payer
+     * Calculate remaining amount to pay
      */
     public BigDecimal getRemainingAmount() {
         BigDecimal paid = getTotalPaid();
@@ -192,9 +243,9 @@ public class Order {
     }
 
     /**
-     * Détermine le statut de paiement calculé automatiquement
+     * Compute payment status based on payments vs total
      */
-    public PaymentStatus getComputedPaymentStatus() {
+   /* public PaymentStatus getComputedPaymentStatus() {
         BigDecimal totalPaidAndCredit = getTotalPaid().add(getTotalCredit());
 
         if (totalPaidAndCredit.compareTo(BigDecimal.ZERO) == 0) {
@@ -202,7 +253,6 @@ public class Order {
         }
 
         if (totalPaidAndCredit.compareTo(totalAmount) >= 0) {
-            // Si tout est en crédit, statut CREDIT, sinon PAID
             if (getTotalPaid().compareTo(BigDecimal.ZERO) == 0) {
                 return PaymentStatus.CREDIT;
             }
@@ -213,7 +263,44 @@ public class Order {
     }
 
     /**
-     * Ajoute un paiement à la commande
+ * Compute payment status based on payments vs total
+ */
+    public PaymentStatus getComputedPaymentStatus() {
+        BigDecimal totalPaid = getTotalPaid();
+        BigDecimal totalCredit = getTotalCredit();
+        BigDecimal totalPaidAndCredit = totalPaid.add(totalCredit);
+
+        log.debug("Computing payment status - Total: {}, Paid: {}, Credit: {}, Combined: {}",
+                totalAmount, totalPaid, totalCredit, totalPaidAndCredit);
+
+        if (totalPaidAndCredit.compareTo(BigDecimal.ZERO) == 0) {
+            return PaymentStatus.UNPAID;
+        }
+
+        // If we have actual payments (cash/card/mobile) that cover the total
+        if (totalPaid.compareTo(totalAmount) >= 0) {
+            return PaymentStatus.PAID;
+        }
+
+        // If we only have credit covering the total
+        if (totalCredit.compareTo(totalAmount) >= 0 && totalPaid.compareTo(BigDecimal.ZERO) == 0) {
+            return PaymentStatus.CREDIT;
+        }
+
+        // Partial payment
+        if (totalPaidAndCredit.compareTo(totalAmount) > 0) {
+            // Overpayment with mixed methods
+            return PaymentStatus.PAID;
+        }
+
+        return PaymentStatus.PARTIALLY_PAID;
+    }
+
+    /**
+     * Add payment to order
+     */
+    /**
+     * Add payment to order
      */
     public void addPayment(Payment payment) {
         if (this.payments == null) {
@@ -222,69 +309,38 @@ public class Order {
         payment.setOrder(this);
         this.payments.add(payment);
 
-        // Mettre à jour le statut automatiquement
+        // ✅ ALSO update deprecated field for backward compatibility
+        if (this.paymentMethod == null) {
+            this.paymentMethod = payment.getMethod();
+        } else if (this.paymentMethod != payment.getMethod()) {
+            // If multiple payment methods, set to MIXED
+            this.paymentMethod = PaymentMethod.MIXED;
+        }
+
+        // Recalculate payment status
         this.paymentStatus = getComputedPaymentStatus();
 
-        // Mettre à jour amountPaid pour compatibilité
+        // Update deprecated amountPaid field
         this.amountPaid = getTotalPaid();
-    }
 
+        // Recalculate change
+        calculateTotals();
+    }
     /**
-     * Retire un paiement de la commande
+     * Remove payment from order
      */
     public void removePayment(Payment payment) {
         if (this.payments != null) {
             this.payments.remove(payment);
             payment.setOrder(null);
-
-            // Mettre à jour le statut
             this.paymentStatus = getComputedPaymentStatus();
             this.amountPaid = getTotalPaid();
         }
     }
 
-    // ============ MÉTHODES EXISTANTES ============
-
-    public void calculateTotals() {
-        if (this.items == null) {
-            this.items = new ArrayList<>();
-        }
-
-        if (this.discountAmount == null) {
-            this.discountAmount = BigDecimal.ZERO;
-        }
-        if (this.taxRate == null) {
-            this.taxRate = BigDecimal.ZERO;
-        }
-
-        // Calculer le sous-total
-        this.subtotal = items.stream()
-                .map(OrderItem::getFinalPrice)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // Calculer la taxe
-        if (Boolean.TRUE.equals(isTaxable) && taxRate != null && taxRate.compareTo(BigDecimal.ZERO) > 0) {
-            this.taxAmount = subtotal.multiply(taxRate)
-                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-        } else {
-            this.taxAmount = BigDecimal.ZERO;
-        }
-
-        // Calculer le total
-        this.totalAmount = subtotal.add(taxAmount).subtract(discountAmount);
-
-        // Calculer la monnaie (basé sur le total payé)
-        BigDecimal totalPaid = getTotalPaid();
-        if (totalPaid != null && totalAmount != null) {
-            this.changeAmount = totalPaid.subtract(totalAmount);
-            if (this.changeAmount.compareTo(BigDecimal.ZERO) < 0) {
-                this.changeAmount = BigDecimal.ZERO;
-            }
-        } else {
-            this.changeAmount = BigDecimal.ZERO;
-        }
-    }
-
+    /**
+     * Add item to order
+     */
     public void addItem(OrderItem item) {
         if (this.items == null) {
             this.items = new ArrayList<>();
@@ -294,6 +350,9 @@ public class Order {
         calculateTotals();
     }
 
+    /**
+     * Remove item from order
+     */
     public void removeItem(OrderItem item) {
         if (this.items != null) {
             this.items.remove(item);
@@ -302,18 +361,26 @@ public class Order {
         }
     }
 
-    public void markAsPaid() {
-        this.paymentStatus = PaymentStatus.PAID;
+    /**
+     * Mark order as completed
+     */
+    public void markAsCompleted() {
         this.status = OrderStatus.COMPLETED;
         this.completedAt = LocalDateTime.now();
     }
 
+    /**
+     * Cancel order
+     */
     public void cancelOrder() {
         this.status = OrderStatus.CANCELLED;
         this.paymentStatus = PaymentStatus.REFUNDED;
         this.cancelledAt = LocalDateTime.now();
     }
 
+    /**
+     * Check if fully refunded
+     */
     public boolean isFullyRefunded() {
         if (this.refunds == null || this.refunds.isEmpty()) {
             return false;
@@ -324,7 +391,7 @@ public class Order {
         return refundedAmount.compareTo(totalAmount) >= 0;
     }
 
-    // Getters that ensure non-null lists
+    // Getters ensuring non-null lists
     public List<OrderItem> getItems() {
         if (this.items == null) {
             this.items = new ArrayList<>();
@@ -345,7 +412,4 @@ public class Order {
         }
         return this.refunds;
     }
-
-
-
 }

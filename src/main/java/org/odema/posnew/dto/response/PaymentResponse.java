@@ -7,9 +7,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-/**
- * DTO de réponse pour Payment
- */
 public record PaymentResponse(
         UUID paymentId,
         UUID orderId,
@@ -22,5 +19,4 @@ public record PaymentResponse(
         UUID shiftReportId,
         String notes,
         LocalDateTime createdAt
-) {
-}
+) {}

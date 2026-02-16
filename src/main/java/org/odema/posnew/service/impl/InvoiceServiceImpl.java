@@ -13,6 +13,7 @@ import org.odema.posnew.dto.response.InvoiceResponse;
 import org.odema.posnew.entity.*;
 import org.odema.posnew.entity.enums.InvoiceStatus;
 import org.odema.posnew.entity.enums.OrderStatus;
+import org.odema.posnew.entity.enums.PaymentMethod;
 import org.odema.posnew.entity.enums.PaymentStatus;
 import org.odema.posnew.exception.BadRequestException;
 import org.odema.posnew.exception.NotFoundException;
@@ -148,7 +149,7 @@ public class InvoiceServiceImpl implements InvoiceService {
                 .invoiceDate(LocalDateTime.now())
                 .paymentDueDate(dueDate)
                 .status(status)
-                .paymentMethod(order.getPaymentMethod().name())
+                .paymentMethod(getPrimaryPaymentMethodName(order)) // ✅ FIXED: Get from payments
                 .notes(buildInvoiceNotes(order, payments))
                 .isActive(true)
                 .build();
@@ -166,6 +167,38 @@ public class InvoiceServiceImpl implements InvoiceService {
         );
 
         return invoice;
+    }
+
+    private String getPrimaryPaymentMethodName(Order order) {
+        List<Payment> payments = order.getPayments();
+
+        if (payments == null || payments.isEmpty()) {
+            log.warn("No payments found for order {}, returning CASH as default", order.getOrderId());
+            return "CASH"; // Default fallback
+        }
+
+        // Get the first non-credit payment method
+        PaymentMethod primaryMethod = payments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.PAID)
+                .filter(p -> p.getMethod() != PaymentMethod.CREDIT)
+                .map(Payment::getMethod)
+                .findFirst()
+                .orElse(PaymentMethod.CASH); // Default to CASH if only credit
+
+        // If multiple methods were used, mark as MIXED
+        long distinctMethods = payments.stream()
+                .filter(p -> p.getStatus() == PaymentStatus.PAID)
+                .map(Payment::getMethod)
+                .distinct()
+                .count();
+
+        if (distinctMethods > 1) {
+            log.info("Multiple payment methods detected, using MIXED");
+            return "MIXED";
+        }
+
+        log.info("Primary payment method determined: {}", primaryMethod);
+        return primaryMethod.name();
     }
 
     /**

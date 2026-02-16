@@ -1,27 +1,27 @@
 package org.odema.posnew.dto.request;
 
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 
 import java.math.BigDecimal;
 import java.util.UUID;
 
+/**
+ * Request for order item - prices are calculated from product, not sent by client!
+ */
 public record OrderItemRequest(
         @NotNull(message = "Le produit est obligatoire")
         UUID productId,
 
         @NotNull(message = "La quantité est obligatoire")
-        @Min(value = 1, message = "La quantité doit être au moins 1")
+        @Positive(message = "La quantité doit être supérieure à 0")
         Integer quantity,
 
-        BigDecimal discountPercentage,
+        BigDecimal discountPercentage,  // Optional: % discount on this item
 
         String notes
 ) {
-    public BigDecimal discountAmount() {
-        if (discountPercentage == null) {
-            return BigDecimal.ZERO;
-        }
-        return discountPercentage.multiply(BigDecimal.valueOf(quantity)).divide(BigDecimal.valueOf(100));
+    public OrderItemRequest {
+        if (discountPercentage == null) discountPercentage = BigDecimal.ZERO;
     }
 }

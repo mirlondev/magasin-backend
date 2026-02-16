@@ -9,6 +9,7 @@ import org.odema.posnew.entity.OrderItem;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 
 @Slf4j
@@ -143,6 +144,7 @@ public class ReceiptDocumentBuilder extends AbstractPdfDocumentBuilder {
     }
 
     @Override
+
     public DocumentBuilder addTotals() {
         try {
             document.add(new Paragraph("================================"));
@@ -164,24 +166,25 @@ public class ReceiptDocumentBuilder extends AbstractPdfDocumentBuilder {
             if (order.getDiscountAmount() != null &&
                     order.getDiscountAmount().compareTo(java.math.BigDecimal.ZERO) > 0) {
                 totals.add(new Chunk("Remise: ", labelFont));
-                totals.add(new Chunk(formatCurrency(order.getDiscountAmount()) + "\n",
-                        valueFont));
+                totals.add(new Chunk(formatCurrency(order.getDiscountAmount()) + "\n", valueFont));
             }
 
             totals.add(Chunk.NEWLINE);
             totals.add(new Chunk("TOTAL: ", totalFont));
             totals.add(new Chunk(formatCurrency(order.getTotalAmount()) + "\n", totalFont));
 
-            if (order.getAmountPaid() != null) {
+            // ✅ FIXED: Get total paid from payments, not deprecated field
+            BigDecimal totalPaid = order.getTotalPaid();
+            if (totalPaid.compareTo(BigDecimal.ZERO) > 0) {
                 totals.add(Chunk.NEWLINE);
                 totals.add(new Chunk("Payé: ", labelFont));
-                totals.add(new Chunk(formatCurrency(order.getAmountPaid()) + "\n", valueFont));
+                totals.add(new Chunk(formatCurrency(totalPaid) + "\n", valueFont));
 
-                if (order.getChangeAmount() != null &&
-                        order.getChangeAmount().compareTo(java.math.BigDecimal.ZERO) > 0) {
+                // ✅ FIXED: Calculate change properly
+                BigDecimal change = totalPaid.subtract(order.getTotalAmount());
+                if (change.compareTo(BigDecimal.ZERO) > 0) {
                     totals.add(new Chunk("Rendu: ", labelFont));
-                    totals.add(new Chunk(formatCurrency(order.getChangeAmount()) + "\n",
-                            valueFont));
+                    totals.add(new Chunk(formatCurrency(change) + "\n", valueFont));
                 }
             }
 
@@ -196,6 +199,7 @@ public class ReceiptDocumentBuilder extends AbstractPdfDocumentBuilder {
 
         return this;
     }
+
 
     @Override
     public DocumentBuilder addFooter() {

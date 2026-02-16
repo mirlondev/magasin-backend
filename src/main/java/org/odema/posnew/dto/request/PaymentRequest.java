@@ -1,22 +1,28 @@
 package org.odema.posnew.dto.request;
 
-import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import org.odema.posnew.entity.enums.PaymentMethod;
 
 import java.math.BigDecimal;
 
-/**
- * DTO pour créer un paiement
- */
 public record PaymentRequest(
-        @NotNull(message = "La méthode de paiement est obligatoire")
+        @NotNull(message = "Le mode de paiement est obligatoire")
         PaymentMethod method,
 
         @NotNull(message = "Le montant est obligatoire")
-        @DecimalMin(value = "0.01", message = "Le montant doit être supérieur à 0")
+        @Positive(message = "Le montant doit être supérieur à 0")
         BigDecimal amount,
 
         String notes
 ) {
+        // Compact constructor with validation
+        public PaymentRequest {
+                if (method == null) {
+                        throw new IllegalArgumentException("Le mode de paiement ne peut pas être null");
+                }
+                if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new IllegalArgumentException("Le montant doit être supérieur à 0");
+                }
+        }
 }
