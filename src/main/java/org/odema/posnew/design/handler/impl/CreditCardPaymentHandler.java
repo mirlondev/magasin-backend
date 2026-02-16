@@ -1,11 +1,13 @@
-package org.odema.posnew.design.handler;
+package org.odema.posnew.design.handler.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.odema.posnew.design.handler.AbstractPaymentHandler;
 import org.odema.posnew.dto.request.PaymentRequest;
 import org.odema.posnew.entity.Order;
 import org.odema.posnew.entity.Payment;
 import org.odema.posnew.entity.ShiftReport;
+import org.odema.posnew.entity.enums.PaymentMethod;
 import org.odema.posnew.entity.enums.PaymentMethod;
 import org.odema.posnew.entity.enums.PaymentStatus;
 import org.odema.posnew.exception.BadRequestException;
@@ -18,35 +20,38 @@ import java.math.BigDecimal;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class CashPaymentHandler extends AbstractPaymentHandler {
+public class CreditCardPaymentHandler extends AbstractPaymentHandler {
 
     private final PaymentRepository paymentRepository;
     private final ShiftReportRepository shiftReportRepository;
 
     @Override
     protected boolean canHandle(PaymentMethod method) {
-        return method == PaymentMethod.CASH;
+        return method == PaymentMethod.CREDIT_CARD ||
+                method == PaymentMethod.DEBIT_CARD;
     }
 
     @Override
     protected Payment processPayment(PaymentRequest request, Order order) {
-        log.info("Traitement paiement ESPÈCES: {} pour commande {}",
+        log.info("Traitement paiement CARTE: {} pour commande {}",
                 request.amount(), order.getOrderNumber());
 
-        // Validation montant
-        validateAmount(request.amount(), order);
+        // Validation
+        validateCardPayment(request.amount(), order);
 
-        // Récupérer shift ouvert
+        // Récupérer shift
         ShiftReport shift = shiftReportRepository
                 .findOpenShiftByCashier(order.getCashier().getUserId())
                 .orElseThrow(() -> new BadRequestException(
                         "Aucune session de caisse ouverte"
                 ));
 
-        // Créer paiement
+        // TODO: Intégration gateway paiement (Stripe, PayPal, etc.)
+        // Pour l'instant, on considère le paiement validé
+
         Payment payment = Payment.builder()
                 .order(order)
-                .method(PaymentMethod.CASH)
+                .method(request.method())
                 .amount(request.amount())
                 .cashier(order.getCashier())
                 .shiftReport(shift)
@@ -61,21 +66,23 @@ public class CashPaymentHandler extends AbstractPaymentHandler {
         shift.addSale(request.amount());
         shiftReportRepository.save(shift);
 
-        log.info("Paiement espèces enregistré: ID {}", savedPayment.getPaymentId());
+        log.info("Paiement carte enregistré: ID {}", savedPayment.getPaymentId());
 
         return savedPayment;
     }
 
-    private void validateAmount(BigDecimal amount, Order order) {
+    private void validateCardPayment(BigDecimal amount, Order order) {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BadRequestException("Le montant doit être positif");
         }
 
         BigDecimal remaining = order.getRemainingAmount();
         if (amount.compareTo(remaining) > 0) {
-            log.warn("Paiement supérieur au montant dû (surpaiement): {} > {}",
-                    amount, remaining);
-            // Autorisé pour espèces (monnaie à rendre)
+            throw new BadRequestException(
+                    "Le montant par carte ne peut pas dépasser le montant dû"
+            );
         }
     }
 }
+
+

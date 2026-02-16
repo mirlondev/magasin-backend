@@ -5,9 +5,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.facade.DocumentGenerationFacade;
 import org.odema.posnew.design.factory.SaleStrategyFactory;
 import org.odema.posnew.design.strategy.SaleStrategy;
+import org.odema.posnew.entity.Order;
 import org.odema.posnew.entity.enums.DocumentType;
 import org.odema.posnew.entity.enums.OrderType;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 /**

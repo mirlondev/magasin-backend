@@ -1,8 +1,12 @@
 package org.odema.posnew.service.impl;
 
-
 import lombok.extern.slf4j.Slf4j;
+import org.odema.posnew.design.event.OrderCancelledEvent;
+import org.odema.posnew.design.event.OrderCompletedEvent;
+import org.odema.posnew.design.event.OrderCreatedEvent;
+import org.odema.posnew.design.event.PaymentReceivedEvent;
 import org.odema.posnew.design.factory.SaleStrategyFactory;
+import org.odema.posnew.design.handler.PaymentHandler;
 import org.odema.posnew.design.strategy.SaleStrategy;
 import org.odema.posnew.design.template.OrderServiceTemplate;
 import org.odema.posnew.dto.request.OrderItemRequest;
@@ -20,7 +24,8 @@ import org.odema.posnew.exception.UnauthorizedException;
 import org.odema.posnew.mapper.OrderMapper;
 import org.odema.posnew.repository.*;
 import org.odema.posnew.service.OrderService;
-import org.odema.posnew.service.PaymentService;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -36,9 +41,10 @@ import java.util.UUID;
 @Service
 public class OrderServiceImpl extends OrderServiceTemplate implements OrderService {
 
-    private final PaymentService paymentService;
     private final PaymentRepository paymentRepository;
     private final ShiftReportRepository shiftReportRepository;
+    private final PaymentHandler paymentHandlerChain;
+    private final ApplicationEventPublisher eventPublisher;
 
     public OrderServiceImpl(
             OrderRepository orderRepository,
@@ -50,167 +56,194 @@ public class OrderServiceImpl extends OrderServiceTemplate implements OrderServi
             InventoryRepository inventoryRepository,
             OrderMapper orderMapper,
             SaleStrategyFactory strategyFactory,
-            PaymentService paymentService,
             PaymentRepository paymentRepository,
-            ShiftReportRepository shiftReportRepository
+            ShiftReportRepository shiftReportRepository,
+            @Qualifier("cashPaymentHandler") PaymentHandler cashHandler,
+            @Qualifier("creditCardPaymentHandler") PaymentHandler cardHandler,
+            @Qualifier("mobileMoneyPaymentHandler") PaymentHandler mobileHandler,
+            @Qualifier("creditPaymentHandler") PaymentHandler creditHandler,
+            ApplicationEventPublisher eventPublisher
     ) {
         super(orderRepository, orderItemRepository, customerRepository,
                 userRepository, storeRepository, productRepository,
                 inventoryRepository, orderMapper, strategyFactory);
-        this.paymentService = paymentService;
+
         this.paymentRepository = paymentRepository;
         this.shiftReportRepository = shiftReportRepository;
+        this.eventPublisher = eventPublisher;
+
+        // ✅ Construire la chaîne de responsabilité COMPLÈTE
+        this.paymentHandlerChain = cashHandler;
+        cashHandler.setNext(cardHandler);
+        cardHandler.setNext(mobileHandler);
+        mobileHandler.setNext(creditHandler);
+    }
+
+
+    // ============================================================================
+    // MÉTHODES TEMPLATE METHOD - Hooks et surcharges
+    // ============================================================================
+
+    /**
+     * ✅ Surcharge UNIQUE de createOrder avec publication d'événement
+     */
+    @Override
+    @Transactional
+    public OrderResponse createOrder(OrderRequest request, UUID cashierId) {
+        log.info("Création commande - Type: {}, Cashier: {}",
+                request.orderType(), cashierId);
+
+        // ✅ Appeler le Template Method du parent
+        OrderResponse response = super.createOrder(request, cashierId);
+
+        // ✅ Publier événement métier
+        Order order = orderRepository.findById(response.orderId())
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+
+        eventPublisher.publishEvent(new OrderCreatedEvent(this, order));
+
+        log.info("Commande créée avec succès: {}", order.getOrderNumber());
+
+        return response;
     }
 
     /**
-     * Surcharge du hook pour ajouter paiement initial si fourni
+     * ✅ Hook pour ajouter paiement initial (appelé par le Template Method)
      */
     @Override
     protected Order afterOrderCreation(Order order, OrderRequest request,
                                        SaleStrategy strategy) {
-        // Si un paiement initial est fourni
+        // ✅ Si paiement initial fourni, le traiter
         if (request.amountPaid() != null &&
                 request.amountPaid().compareTo(BigDecimal.ZERO) > 0) {
+
+            log.info("Ajout paiement initial: {} pour commande {}",
+                    request.amountPaid(), order.getOrderNumber());
 
             PaymentMethod method = request.paymentMethod() != null
                     ? request.paymentMethod() : PaymentMethod.CASH;
 
-            return addInitialPayment(order, method, request.amountPaid());
-        }
+            PaymentRequest paymentRequest = new PaymentRequest(
+                    method,
+                    request.amountPaid(),
+                    "Paiement initial lors de la création"
+            );
 
-        return order;
-    }
+            try {
+                // ✅ Utiliser la chaîne de handlers pour traiter le paiement
+                Payment payment = paymentHandlerChain.handle(paymentRequest, order);
+                order.addPayment(payment);
 
-    /**
-     * Ajouter un paiement initial
-     */
-    private Order addInitialPayment(Order order, PaymentMethod method,
-                                    BigDecimal amount) {
-        log.info("Ajout paiement initial: {} {} pour commande {}",
-                amount, method, order.getOrderNumber());
-
-        ShiftReport shift = shiftReportRepository
-                .findOpenShiftByCashier(order.getCashier().getUserId())
-                .orElse(null);
-
-        Payment payment = Payment.builder()
-                .order(order)
-                .method(method)
-                .amount(amount)
-                .cashier(order.getCashier())
-                .shiftReport(shift)
-                .status(method == PaymentMethod.CREDIT
-                        ? PaymentStatus.CREDIT : PaymentStatus.PAID)
-                .notes("Paiement initial lors de la création")
-                .isActive(true)
-                .build();
-
-        Payment savedPayment = paymentRepository.save(payment);
-        order.addPayment(savedPayment);
-
-        // Mettre à jour shift si applicable
-        if (shift != null && method != PaymentMethod.CREDIT) {
-            shift.addSale(amount);
-            shiftReportRepository.save(shift);
-        }
-
-        return order;
-    }
-
-    @Override
-    @Transactional
-    public OrderResponse addPaymentToOrder(UUID orderId, PaymentRequest paymentRequest)
-            throws UnauthorizedException {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        paymentService.processPayment(orderId, paymentRequest,
-                order.getCashier().getUserId());
-
-        Order updatedOrder = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        return orderMapper.toResponse(updatedOrder);
-    }
-
-    // ... autres méthodes (getOrderById, updateOrder, etc.)
-
-
-
-    @Override
-    public OrderResponse getOrderByNumber(String orderNumber) {
-        Order order = orderRepository.findByOrderNumber(orderNumber)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        return orderMapper.toResponse(order);
-    }
-
-    @Override
-    @Transactional
-    public OrderResponse updateOrder(UUID orderId, OrderRequest request) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        // Vérifier que la commande peut être modifiée
-        if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
-            throw new BadRequestException("Impossible de modifier une commande " + order.getStatus());
-        }
-
-        // Mettre à jour les informations de base
-        if (request.customerId() != null) {
-            Customer customer = customerRepository.findById(request.customerId())
-                    .orElseThrow(() -> new NotFoundException("Client non trouvé"));
-            order.setCustomer(customer);
-        }
-
-        if (request.notes() != null) {
-            order.setNotes(request.notes());
-        }
-
-        if (request.paymentMethod() != null) {
-            order.setPaymentMethod(request.paymentMethod());
-        }
-
-        if (request.isTaxable() != null) {
-            order.setIsTaxable(request.isTaxable());
-        }
-
-        if (request.taxRate() != null) {
-            order.setTaxRate(request.taxRate());
-        }
-
-        if (request.discountAmount() != null) {
-            order.setDiscountAmount(request.discountAmount());
-        }
-
-        // Mettre à jour les articles si spécifiés
-        if (request.items() != null && !request.items().isEmpty()) {
-            // Supprimer les anciens articles
-            order.getItems().clear();
-
-            // Ajouter les nouveaux articles
-            for (OrderItemRequest itemRequest : request.items()) {
-                Product product = productRepository.findById(itemRequest.productId())
-                        .orElseThrow(() -> new NotFoundException("Produit non trouvé"));
-
-                // Vérifier le stock
-                availableStock(order, itemRequest, product);
+                log.info("Paiement initial ajouté: {} {}",
+                        payment.getAmount(), payment.getMethod());
+            } catch (Exception e) {
+                log.error("Erreur ajout paiement initial", e);
+                // Ne pas bloquer la création de commande si paiement échoue
             }
         }
 
-        // Recalculer les totaux
-        order.calculateTotals();
-
-        Order updatedOrder = orderRepository.save(order);
-        return orderMapper.toResponse(updatedOrder);
+        return order;
     }
 
+    // ============================================================================
+    // MÉTHODES DE PAIEMENT
+    // ============================================================================
+
+    /**
+     * ✅ Ajouter un paiement à une commande existante
+     */
     @Override
     @Transactional
-    public void cancelOrder(UUID orderId) {
+    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','CASHIER')")
+    public OrderResponse addPaymentToOrder(UUID orderId, PaymentRequest paymentRequest)
+            throws UnauthorizedException {
+        log.info("Ajout paiement {} à commande {}",
+                paymentRequest.amount(), orderId);
+
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
 
+        // ✅ Vérifications métier
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            throw new BadRequestException("Impossible d'ajouter un paiement à une commande annulée");
+        }
+
+        // ✅ Utiliser la chaîne de handlers
+        Payment payment = paymentHandlerChain.handle(paymentRequest, order);
+        order.addPayment(payment);
+
+        // ✅ Sauvegarder
+        Order updatedOrder = orderRepository.save(order);
+
+        // ✅ Publier événement paiement
+        eventPublisher.publishEvent(
+                new PaymentReceivedEvent(this, updatedOrder, payment)
+        );
+
+        log.info("Paiement ajouté avec succès - Nouveau statut: {}",
+                updatedOrder.getPaymentStatus());
+
+        return orderMapper.toResponse(updatedOrder);
+    }
+
+    // ============================================================================
+    // MÉTHODES DE CYCLE DE VIE
+    // ============================================================================
+
+    /**
+     * ✅ Marquer commande comme complétée
+     */
+    @Override
+    @Transactional
+    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','CASHIER')")
+    public OrderResponse markAsCompleted(UUID orderId) {
+        log.info("Marquage commande {} comme complétée", orderId);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+
+        // ✅ Validations
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            throw new BadRequestException("Impossible de terminer une commande annulée");
+        }
+
+        if (order.getStatus() == OrderStatus.COMPLETED) {
+            log.warn("Commande {} déjà complétée", orderId);
+            return orderMapper.toResponse(order);
+        }
+
+        // ✅ Vérifier paiement
+        if (order.getPaymentStatus() == PaymentStatus.UNPAID) {
+            throw new BadRequestException("La commande n'a aucun paiement enregistré");
+        }
+
+        // ✅ Marquer comme complétée
+        order.setStatus(OrderStatus.COMPLETED);
+        order.setCompletedAt(LocalDateTime.now());
+
+        Order updatedOrder = orderRepository.save(order);
+
+        // ✅ Publier événement
+        eventPublisher.publishEvent(new OrderCompletedEvent(this, updatedOrder));
+
+        log.info("Commande {} complétée avec succès", order.getOrderNumber());
+
+        return orderMapper.toResponse(updatedOrder);
+    }
+
+    /**
+     * ✅ Annuler une commande
+     */
+    @Override
+    @Transactional
+    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN')")
+    public void cancelOrder(UUID orderId) {
+        log.info("Annulation commande {}", orderId);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+
+        // ✅ Validations
         if (order.getStatus() == OrderStatus.CANCELLED) {
             throw new BadRequestException("La commande est déjà annulée");
         }
@@ -219,11 +252,101 @@ public class OrderServiceImpl extends OrderServiceTemplate implements OrderServi
             throw new BadRequestException("Impossible d'annuler une commande terminée");
         }
 
+        // ✅ Annuler
         order.cancelOrder();
         orderRepository.save(order);
 
-        // Restaurer le stock
+        // ✅ Restaurer le stock
         restoreInventoryForOrder(order);
+
+        // ✅ Publier événement
+        eventPublisher.publishEvent(new OrderCancelledEvent(this, order));
+
+        log.info("Commande {} annulée - Stock restauré", order.getOrderNumber());
+    }
+
+    /**
+     * ✅ Mettre à jour une commande
+     */
+    @Override
+    @Transactional
+    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','CASHIER')")
+    public OrderResponse updateOrder(UUID orderId, OrderRequest request) {
+        log.info("Mise à jour commande {}", orderId);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+
+        // ✅ Vérifier que la commande peut être modifiée
+        if (order.getStatus() == OrderStatus.COMPLETED ||
+                order.getStatus() == OrderStatus.CANCELLED) {
+            throw new BadRequestException(
+                    "Impossible de modifier une commande " + order.getStatus()
+            );
+        }
+
+        // ✅ Mettre à jour les champs autorisés
+        updateOrderFields(order, request);
+
+        // ✅ Recalculer les totaux
+        order.calculateTotals();
+
+        Order updatedOrder = orderRepository.save(order);
+
+        log.info("Commande {} mise à jour", order.getOrderNumber());
+
+        return orderMapper.toResponse(updatedOrder);
+    }
+
+    /**
+     * ✅ Méthode helper pour mise à jour des champs
+     */
+    private void updateOrderFields(Order order, OrderRequest request) {
+        if (request.customerId() != null) {
+            Customer customer = customerRepository.findById(
+                    request.customerId()
+            ).orElseThrow(() -> new NotFoundException("Client non trouvé"));
+            order.setCustomer(customer);
+        }
+
+        if (request.notes() != null) {
+            order.setNotes(request.notes());
+        }
+
+        if (request.discountAmount() != null) {
+            order.setDiscountAmount(request.discountAmount());
+        }
+
+        if (request.taxRate() != null) {
+            order.setTaxRate(request.taxRate());
+        }
+
+        if (request.isTaxable() != null) {
+            order.setIsTaxable(request.isTaxable());
+        }
+
+        // ⚠️ Note: Modification des items non recommandée après création
+        // Si nécessaire, implémenter avec restauration/déduction de stock
+    }
+
+    // ============================================================================
+    // MÉTHODES DE CONSULTATION
+    // ============================================================================
+
+    @Override
+    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','CASHIER')")
+    public OrderResponse getOrderById(UUID orderId) {
+        Order order = orderRepository.findByIdWithPayments(orderId)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+        return orderMapper.toResponse(order);
+    }
+
+    @Override
+    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','CASHIER')")
+    public OrderResponse getOrderByNumber(String orderNumber) {
+        Order order = orderRepository.findByOrderNumber(orderNumber)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+        return orderMapper.toResponse(order);
     }
 
     @Override
@@ -234,6 +357,27 @@ public class OrderServiceImpl extends OrderServiceTemplate implements OrderServi
                 .toList();
     }
 
+    @Override
+    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','CASHIER')")
+    public Page<OrderResponse> getOrders(UUID userId, Pageable pageable) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Utilisateur non trouvé"));
+
+        return switch (user.getUserRole()) {
+            case ADMIN -> orderRepository.findAll(pageable)
+                    .map(orderMapper::toResponse);
+
+            case STORE_ADMIN -> orderRepository
+                    .findByStore_StoreId(user.getAssignedStore().getStoreId(), pageable)
+                    .map(orderMapper::toResponse);
+
+            case CASHIER -> orderRepository
+                    .findByCashier_UserId(user.getUserId(), pageable)
+                    .map(orderMapper::toResponse);
+
+            default -> throw new BadRequestException("Rôle non autorisé: " + user.getUserRole());
+        };
+    }
 
     @Override
     public List<OrderResponse> getOrdersByStore(UUID storeId) {
@@ -264,201 +408,47 @@ public class OrderServiceImpl extends OrderServiceTemplate implements OrderServi
                     .map(orderMapper::toResponse)
                     .toList();
         } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Statut de commande invalide: " + status);
+            throw new BadRequestException("Statut invalide: " + status);
         }
     }
 
     @Override
-    public List<OrderResponse> getOrdersByDateRange(LocalDateTime startDate, LocalDateTime endDate) {
+    public List<OrderResponse> getOrdersByDateRange(LocalDateTime startDate,
+                                                    LocalDateTime endDate) {
         return orderRepository.findByDateRange(startDate, endDate).stream()
                 .map(orderMapper::toResponse)
                 .toList();
     }
 
     @Override
-    @Transactional
-    public OrderResponse createOrder(OrderRequest request, UUID cashierId) throws UnauthorizedException {
-        // Récupérer le caissier
-        User cashier = userRepository.findById(cashierId)
+    public List<OrderResponse> getRecentOrders(int limit) {
+        return orderRepository.findRecentCompletedOrders().stream()
+                .limit(limit)
+                .map(orderMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderResponse> findCashierOrdersByShift(UUID cashierId, UUID shiftId) {
+        userRepository.findById(cashierId)
                 .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
 
-        // Récupérer le store
-        Store store = storeRepository.findById(request.storeId())
-                .orElseThrow(() -> new NotFoundException("Store non trouvé"));
+        List<Order> orders = orderRepository.findCashierOrdersByShift(cashierId, shiftId);
 
-        // Récupérer le client si spécifié
-        Customer customer = null;
-        if (request.customerId() != null) {
-            customer = customerRepository.findById(request.customerId())
-                    .orElseThrow(() -> new NotFoundException("Client non trouvé"));
-        }
-
-        // Générer un numéro de commande unique
-        String orderNumber = generateOrderNumber();
-
-        // Valeurs par défaut
-        BigDecimal taxRate = request.taxRate() != null ? request.taxRate() : BigDecimal.ZERO;
-        BigDecimal discountAmount = request.discountAmount() != null ? request.discountAmount() : BigDecimal.ZERO;
-        Boolean isTaxable = request.isTaxable() != null ? request.isTaxable() : Boolean.FALSE;
-
-        // Créer la commande avec le nouveau système
-        PaymentMethod paymentMethod1 = request.paymentMethod() != null ?
-                request.paymentMethod() : PaymentMethod.CASH;
-
-        Order order = Order.builder()
-                .orderNumber(orderNumber)
-                .customer(customer)
-                .cashier(cashier)
-                .store(store)
-                .paymentMethod(paymentMethod1)
-                .paymentStatus(PaymentStatus.UNPAID) // Par défaut non payé
-                .status(OrderStatus.PENDING)
-                .notes(request.notes())
-                .isTaxable(isTaxable)
-                .taxRate(taxRate)
-                .discountAmount(discountAmount)
-                .amountPaid(BigDecimal.ZERO) // Initialisé à 0
-                .subtotal(BigDecimal.ZERO)
-                .taxAmount(BigDecimal.ZERO)
-                .totalAmount(BigDecimal.ZERO)
-                .changeAmount(BigDecimal.ZERO)
-                .build();
-
-        // Ajouter les articles
-        for (OrderItemRequest itemRequest : request.items()) {
-            Product product = productRepository.findById(itemRequest.productId())
-                    .orElseThrow(() -> new NotFoundException("Produit non trouvé: " + itemRequest.productId()));
-
-            // Vérifier le stock
-            availableStock(order, itemRequest, product);
-        }
-
-        // Calculer les totaux
-        order.calculateTotals();
-
-        // Sauvegarder la commande AVANT d'ajouter le paiement
-        Order savedOrder = orderRepository.save(order);
-
-        // Si un paiement initial est spécifié, le créer directement
-        if (request.amountPaid() != null && request.amountPaid().compareTo(BigDecimal.ZERO) > 0) {
-            PaymentMethod paymentMethod = paymentMethod1;
-
-            // Récupérer le shift report ouvert
-            ShiftReport shift = shiftReportRepository.findOpenShiftByCashier(cashierId)
-                    .orElse(null);
-
-            // Créer le paiement directement (sans passer par PaymentService pour éviter la validation)
-            Payment payment = Payment.builder()
-                    .order(savedOrder)
-                    .method(paymentMethod)
-                    .amount(request.amountPaid())
-                    .cashier(cashier)
-                    .shiftReport(shift)
-                    .status(paymentMethod == PaymentMethod.CREDIT ?
-                            PaymentStatus.CREDIT : PaymentStatus.PAID)
-                    .notes("Paiement initial lors de la création de la commande")
-                    .isActive(true)
-                    .build();
-
-            // Sauvegarder le paiement
-            Payment savedPayment = paymentRepository.save(payment);
-
-            // Ajouter le paiement à la commande
-            savedOrder.addPayment(savedPayment);
-
-            // Mettre à jour le shift report (sauf pour crédit)
-            if (shift != null && paymentMethod != PaymentMethod.CREDIT) {
-                shift.addSale(request.amountPaid());
-                shiftReportRepository.save(shift);
-            }
-
-            // Si la commande est maintenant complètement payée, la marquer comme terminée
-            if (savedOrder.getPaymentStatus() == PaymentStatus.PAID &&
-                    savedOrder.getStatus() == OrderStatus.PENDING) {
-                savedOrder.setStatus(OrderStatus.COMPLETED);
-                savedOrder.setCompletedAt(LocalDateTime.now());
-            }
-
-            // Sauvegarder la commande mise à jour
-            savedOrder = orderRepository.save(savedOrder);
-        }
-
-        // Mettre à jour le stock
-        updateInventoryForOrder(savedOrder);
-
-        // Mettre à jour le client si applicable
-        if (customer != null) {
-            customer.addPurchase(savedOrder.getTotalAmount().doubleValue());
-            customerRepository.save(customer);
-        }
-
-        return orderMapper.toResponse(savedOrder);
+        return orders.stream()
+                .map(orderMapper::toResponse)
+                .toList();
     }
 
-    private void availableStock(Order order, OrderItemRequest itemRequest, Product product) {
-        Integer availableStock = inventoryRepository.findTotalQuantityByProduct(itemRequest.productId());
-        if (availableStock == null || availableStock < itemRequest.quantity()) {
-            throw new BadRequestException("Stock insuffisant pour le produit: " + product.getName());
-        }
-
-        getDiscountPercentage(order, itemRequest, product);
-    }
-
-    public static void getDiscountPercentage(Order order, OrderItemRequest itemRequest, Product product) {
-        BigDecimal itemDiscountPercentage = itemRequest.discountPercentage() != null ?
-                itemRequest.discountPercentage() : BigDecimal.ZERO;
-
-        OrderItem orderItem = OrderItem.builder()
-                .order(order)
-                .product(product)
-                .quantity(itemRequest.quantity())
-                .unitPrice(product.getPrice())
-                .discountPercentage(itemDiscountPercentage)
-                .discountAmount(BigDecimal.ZERO)
-                .totalPrice(BigDecimal.ZERO)
-                .finalPrice(BigDecimal.ZERO)
-                .notes(itemRequest.notes())
-                .build();
-
-        orderItem.calculatePrices();
-        order.addItem(orderItem);
-    }
-
+    // ============================================================================
+    // MÉTHODES STATISTIQUES
+    // ============================================================================
 
     @Override
-    @Transactional
-    public OrderResponse markAsCompleted(UUID orderId) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        if (order.getStatus() == OrderStatus.CANCELLED) {
-            throw new BadRequestException("Impossible de terminer une commande annulée");
-        }
-
-        // Vérifier si la commande est payée ou partiellement payée
-        if (order.getPaymentStatus() != PaymentStatus.PAID &&
-                order.getPaymentStatus() != PaymentStatus.PARTIALLY_PAID &&
-                order.getPaymentStatus() != PaymentStatus.CREDIT) {
-            throw new BadRequestException("La commande n'a pas de paiement enregistré");
-        }
-
-        order.setStatus(OrderStatus.COMPLETED);
-        order.setCompletedAt(LocalDateTime.now());
-
-        Order updatedOrder = orderRepository.save(order);
-        return orderMapper.toResponse(updatedOrder);
-    }
-
-    @Override
-    public OrderResponse getOrderById(UUID orderId) {
-        Order order = orderRepository.findByIdWithPayments(orderId)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
-
-        return orderMapper.toResponse(order);
-    }
-
-    @Override
-    public BigDecimal getTotalSalesByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate) {
+    public BigDecimal getTotalSalesByStore(UUID storeId,
+                                           LocalDateTime startDate,
+                                           LocalDateTime endDate) {
         if (startDate == null || endDate == null) {
             startDate = LocalDateTime.now().minusDays(30);
             endDate = LocalDateTime.now();
@@ -471,24 +461,9 @@ public class OrderServiceImpl extends OrderServiceTemplate implements OrderServi
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public List<OrderResponse> findCashierOrdersByShift(UUID cashierId, UUID shiftId) {
-        // 1. Vérifier le caissier
-        User cashier = userRepository.findById(cashierId)
-                .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
-
-        // 2. Récupérer les commandes du caissier pour ce shift
-        List<Order> orders = orderRepository
-                .findCashierOrdersByShift(cashierId, shiftId);
-
-        // 3. Mapper vers OrderResponse
-        return orders.stream()
-                .map(orderMapper::toResponse)
-                .toList();
-    }
-
-    @Override
-    public Integer getOrderCountByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate) {
+    public Integer getOrderCountByStore(UUID storeId,
+                                        LocalDateTime startDate,
+                                        LocalDateTime endDate) {
         if (startDate == null || endDate == null) {
             startDate = LocalDateTime.now().minusDays(30);
             endDate = LocalDateTime.now();
@@ -500,81 +475,38 @@ public class OrderServiceImpl extends OrderServiceTemplate implements OrderServi
         return count != null ? count : 0;
     }
 
-    @Override
-    public List<OrderResponse> getRecentOrders(int limit) {
-        return orderRepository.findRecentCompletedOrders().stream()
-                .limit(limit)
-                .map(orderMapper::toResponse)
-                .toList();
-    }
+    // ============================================================================
+    // MÉTHODES UTILITAIRES PRIVÉES
+    // ============================================================================
 
-    @Override
-    public Page<OrderResponse> getOrders(UUID userId, Pageable pageable) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("Utilisateur non trouvé"));
-
-        // ADMIN → tout
-        if (user.getUserRole() == UserRole.ADMIN) {
-            return orderRepository.findAll(pageable)
-                    .map(orderMapper::toResponse);
-        }
-
-        // STORE ADMIN → commandes du magasin
-        if (user.getUserRole() == UserRole.STORE_ADMIN) {
-            return orderRepository
-                    .findByStore_StoreId(user.getAssignedStore().getStoreId(), pageable)
-                    .map(orderMapper::toResponse);
-        }
-
-        // CASHIER → ses commandes uniquement
-        if (user.getUserRole() == UserRole.CASHIER) {
-            return orderRepository
-                    .findByCashier_UserId(user.getUserId(), pageable)
-                    .map(orderMapper::toResponse);
-        }
-
-        throw new BadRequestException("Rôle non autorisé");
-    }
-
-    private String generateOrderNumber() {
-        String prefix = "ORD";
-        String timestamp = String.valueOf(System.currentTimeMillis());
-        String random = String.valueOf((int) (Math.random() * 1000));
-
-        String substring = timestamp.substring(timestamp.length() - 6);
-        String orderNumber = prefix + substring + random;
-
-        // Vérifier l'unicité
-        while (orderRepository.existsByOrderNumber(orderNumber)) {
-            random = String.valueOf((int) (Math.random() * 1000));
-            orderNumber = prefix + substring + random;
-        }
-
-        return orderNumber;
-    }
-
-    private void updateInventoryForOrder(Order order) {
-        for (OrderItem item : order.getItems()) {
-            // Pour chaque article, trouver l'inventaire dans le store de la commande
-            inventoryRepository.findByProduct_ProductIdAndStore_StoreId(
-                            item.getProduct().getProductId(),
-                            order.getStore().getStoreId())
-                    .ifPresent(inventory -> {
-                        inventory.decreaseQuantity(item.getQuantity());
-                        inventoryRepository.save(inventory);
-                    });
-        }
-    }
-
+    /**
+     * ✅ Restaurer l'inventaire lors de l'annulation
+     */
     private void restoreInventoryForOrder(Order order) {
         for (OrderItem item : order.getItems()) {
             inventoryRepository.findByProduct_ProductIdAndStore_StoreId(
-                            item.getProduct().getProductId(),
-                            order.getStore().getStoreId())
-                    .ifPresent(inventory -> {
-                        inventory.increaseQuantity(item.getQuantity());
-                        inventoryRepository.save(inventory);
-                    });
+                    item.getProduct().getProductId(),
+                    order.getStore().getStoreId()
+            ).ifPresent(inventory -> {
+                inventory.increaseQuantity(item.getQuantity());
+                inventoryRepository.save(inventory);
+
+                log.debug("Stock restauré: {} x{} pour produit {}",
+                        item.getQuantity(),
+                        item.getProduct().getName(),
+                        inventory.getInventoryId());
+            });
+        }
+    }
+
+    public static void getDiscountPercentage(Order order, OrderItemRequest itemRequest, Product product) {
+        if (itemRequest.discountAmount() != null && itemRequest.discountAmount().compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal discountPercentage = itemRequest.discountAmount().divide(product.getPrice(), 4, BigDecimal.ROUND_HALF_UP)
+                    .multiply(BigDecimal.valueOf(100));
+            log.info("Calcul pour produit {}: Montant de réduction {} correspond à une réduction de {}%",
+                    product.getName(), itemRequest.discountAmount(), discountPercentage);
+        } else {
+            log.info("Aucune réduction appliquée pour produit {}", product.getName());
         }
     }
 }

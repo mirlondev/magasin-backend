@@ -1,6 +1,7 @@
 package org.odema.posnew.design.template;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.odema.posnew.design.factory.SaleStrategyFactory;
 import org.odema.posnew.design.strategy.SaleStrategy;
 import org.odema.posnew.design.strategy.ValidationResult;
@@ -11,6 +12,7 @@ import org.odema.posnew.entity.enums.OrderStatus;
 import org.odema.posnew.entity.enums.PaymentStatus;
 import org.odema.posnew.exception.BadRequestException;
 
+import org.odema.posnew.exception.NotFoundException;
 import org.odema.posnew.mapper.OrderMapper;
 import org.odema.posnew.repository.*;
 import org.odema.posnew.service.impl.OrderServiceImpl;
@@ -203,14 +205,14 @@ public abstract class OrderServiceTemplate {
                 .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
     }
 
-    private Store loadStore(String storeId) {
-        return storeRepository.findById(UUID.fromString(storeId))
+        private Store loadStore(UUID storeId) {
+        return storeRepository.findById(storeId)
                 .orElseThrow(() -> new NotFoundException("Store non trouvé"));
     }
 
-    private Customer loadCustomer(String customerId) {
+    private Customer loadCustomer(UUID customerId) {
         if (customerId == null) return null;
-        return customerRepository.findById(UUID.fromString(customerId))
+        return customerRepository.findById(customerId)
                 .orElseThrow(() -> new NotFoundException("Client non trouvé"));
     }
 
@@ -218,6 +220,11 @@ public abstract class OrderServiceTemplate {
      * Générer numéro de commande unique
      */
     protected String generateOrderNumber() {
+        return getOrderPrefix(orderRepository);
+    }
+
+    @NonNull
+    public static String getOrderPrefix(OrderRepository orderRepository) {
         String prefix = "ORD";
         String timestamp = String.valueOf(System.currentTimeMillis());
         String random = String.valueOf((int) (Math.random() * 1000));

@@ -27,15 +27,32 @@ jwt:
   expiration: 86400000 # 24 hours in milliseconds
   refresh-expiration: 604800000 # 7 days
 
+task:
+  execution:
+    pool:
+      core-size: 5
+      max-size: 10
+      queue-capacity: 100
 
 logging:
   level:
-    org.odema.posnew: DEBUG
     org.springframework.security: DEBUG
+    org.odema.posnew: DEBUG
+    org.odema.posnew.strategy: DEBUG
+    org.odema.posnew.handler: DEBUG
+    org.odema.posnew.builder: DEBUG
+    org.odema.posnew.facade: DEBUG
+    org.springframework.context.event: DEBUG
+
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+  file:
+    name: logs/odema-pos.log
 # application.yml - Partie factures
 app:
   company:
-    name: "ODEMA POS"
+    name: "POS MIKILI"
     address: "123 Rue Principale, Yaoundé, Cameroun"
     phone: "+237 6XX XX XX XX"
     email: "contact@odema.com"
@@ -49,6 +66,12 @@ app:
     tax-rate: 19.25
     terms: "Paiement dans les 30 jours suivant la date de facturation."
     footer-text: "Merci pour votre confiance!"
+    qrcode:
+      enabled: true
+    watermark:
+      draft: BROUILLON
+      copy: COPIE
+      default-validity-days: 30
 
     # Configuration PDF
     pdf:
@@ -60,3 +83,31 @@ app:
       margin-bottom: 50
       margin-left: 50
       margin-right: 50
+# Désactivation Swagger/SpringDoc si nécessaire
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+file:
+    directories:
+      invoices: invoices
+      receipts: receipts
+      orders: orders/documents
+    upload-dir: uploads
+
+
+    receipt:
+      thermal:
+        width: 58
+        enabled: true
+
+    payment:
+      mobile-money:
+        providers:
+          - MTN
+          - ORANGE
+          - AIRTEL
+        timeout: 30000
+

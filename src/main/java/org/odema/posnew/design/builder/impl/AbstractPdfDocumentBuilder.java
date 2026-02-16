@@ -1,6 +1,16 @@
-package org.odema.posnew.design.builder;
+package org.odema.posnew.design.builder.impl;
 
 import com.itextpdf.text.*;
+import com.itextpdf.text.pdf.PdfPCell;
+import com.itextpdf.text.pdf.PdfWriter;
+import lombok.extern.slf4j.Slf4j;
+import org.odema.posnew.design.builder.DocumentBuilder;
+import org.odema.posnew.entity.Order;
+import org.springframework.beans.factory.annotation.Value;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 @Slf4j
 public abstract class AbstractPdfDocumentBuilder implements DocumentBuilder {

@@ -1,14 +1,40 @@
-package org.odema.posnew.design.builder;
+package org.odema.posnew.design.builder.impl;
 
 import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.PdfPCell;
 import com.itextpdf.text.pdf.PdfPTable;
+import com.itextpdf.text.pdf.draw.LineSeparator;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
+import org.odema.posnew.design.builder.DocumentBuilder;
+import org.odema.posnew.entity.Customer;
+import org.odema.posnew.entity.Order;
+import org.odema.posnew.entity.OrderItem;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import java.time.format.DateTimeFormatter;
 
 @Slf4j
 @Component
 public class InvoiceDocumentBuilder extends AbstractPdfDocumentBuilder {
+    @Value("${app.file.directories.invoices:invoices}")
+    private String invoicesDirectory;
+
+    @Value("${app.company.name:ODEMA POS}")
+    private String companyName;
+
+    @Value("${app.company.address:123 Rue Principale, Pointe-Noire}")
+    private String companyAddress;
+
+    @Value("${app.company.phone:+237 6XX XX XX XX}")
+    private String companyPhone;
+
+    @Value("${app.company.email:contact@odema.com}")
+    private String companyEmail;
+
+    @Value("${app.company.tax-id:TAX-123456}")
+    private String companyTaxId;
 
     private static final DateTimeFormatter DATE_FORMATTER =
             DateTimeFormatter.ofPattern("dd/MM/yyyy");
@@ -29,20 +55,7 @@ public class InvoiceDocumentBuilder extends AbstractPdfDocumentBuilder {
             headerTable.setWidths(new float[]{1, 1});
 
             // Colonne gauche: Logo + Nom
-            PdfPCell leftCell = new PdfPCell();
-            leftCell.setBorder(Rectangle.NO_BORDER);
-
-            Font companyFont = new Font(Font.FontFamily.HELVETICA, 18,
-                    Font.BOLD, HEADER_COLOR);
-            Paragraph company = new Paragraph(companyName, companyFont);
-            leftCell.addElement(company);
-
-            Font sloganFont = new Font(Font.FontFamily.HELVETICA, 9,
-                    Font.ITALIC, TEXT_DARK);
-            Paragraph slogan = new Paragraph(
-                    "Votre partenaire commercial de confiance", sloganFont
-            );
-            leftCell.addElement(slogan);
+            PdfPCell leftCell = getPdfPCell();
 
             headerTable.addCell(leftCell);
 
@@ -81,6 +94,28 @@ public class InvoiceDocumentBuilder extends AbstractPdfDocumentBuilder {
         }
 
         return this;
+    }
+
+    private @NonNull PdfPCell getPdfPCell() {
+        PdfPCell leftCell = new PdfPCell();
+        leftCell.setBorder(Rectangle.NO_BORDER);
+
+        setCompagnyFont(leftCell, HEADER_COLOR, companyName, TEXT_DARK);
+        return leftCell;
+    }
+
+    public static void setCompagnyFont(PdfPCell leftCell, BaseColor headerColor, String companyName, BaseColor textDark) {
+        Font companyFont = new Font(Font.FontFamily.HELVETICA, 18,
+                Font.BOLD, headerColor);
+        Paragraph company = new Paragraph(companyName, companyFont);
+        leftCell.addElement(company);
+
+        Font sloganFont = new Font(Font.FontFamily.HELVETICA, 9,
+                Font.ITALIC, textDark);
+        Paragraph slogan = new Paragraph(
+                "Votre partenaire commercial de confiance", sloganFont
+        );
+        leftCell.addElement(slogan);
     }
 
     @Override

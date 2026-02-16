@@ -1,5 +1,6 @@
 package org.odema.posnew.service;
 
+import com.itextpdf.text.DocumentException;
 import org.odema.posnew.dto.response.InvoiceResponse;
 
 import java.io.IOException;
@@ -8,7 +9,7 @@ import java.util.List;
 import java.util.UUID;
 
 public interface InvoiceService {
-    InvoiceResponse generateInvoice(UUID orderId) throws IOException;
+    InvoiceResponse generateInvoice(UUID orderId) throws IOException, DocumentException;
 
     InvoiceResponse getInvoiceById(UUID invoiceId);
 
@@ -24,7 +25,7 @@ public interface InvoiceService {
 
     List<InvoiceResponse> getInvoicesByDateRange(LocalDate startDate, LocalDate endDate);
 
-    byte[] generateInvoicePdf(UUID invoiceId) throws IOException;
+    byte[] generateInvoicePdf(UUID invoiceId) throws IOException, DocumentException;
 
     String getInvoicePdfUrl(UUID invoiceId);
 

@@ -1,13 +1,34 @@
-package org.odema.posnew.design.builder;
+package org.odema.posnew.design.builder.impl;
 
 import com.itextpdf.text.*;
+import com.itextpdf.text.pdf.PdfPTable;
 import lombok.extern.slf4j.Slf4j;
+import org.odema.posnew.design.builder.DocumentBuilder;
+import org.odema.posnew.entity.Order;
+import org.odema.posnew.entity.OrderItem;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import java.time.format.DateTimeFormatter;
 
 @Slf4j
 @Component
 public class ReceiptDocumentBuilder extends AbstractPdfDocumentBuilder {
 
+    @Value("${app.company.name:ODEMA POS}")
+    private String companyName;
+
+    @Value("${app.company.address:123 Rue Principale, Ville}")
+    private String companyAddress;
+
+    @Value("${app.company.phone:+237 6XX XX XX XX}")
+    private String companyPhone;
+
+    @Value("${app.company.email:contact@odema.com}")
+    private String companyEmail;
+
+    @Value("${app.company.tax-id:TAX-123456}")
+    private String companyTaxId;
     private static final DateTimeFormatter DATETIME_FORMATTER =
             DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 

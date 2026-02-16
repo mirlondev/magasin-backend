@@ -7,10 +7,12 @@ import org.hibernate.annotations.Fetch;
 import org.hibernate.annotations.FetchMode;
 import org.hibernate.annotations.UpdateTimestamp;
 import org.odema.posnew.entity.enums.OrderStatus;
+import org.odema.posnew.entity.enums.OrderType;
 import org.odema.posnew.entity.enums.PaymentMethod;
 import org.odema.posnew.entity.enums.PaymentStatus;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -102,6 +104,10 @@ public class Order {
     @Column(nullable = false, length = 20)
     private PaymentStatus paymentStatus = PaymentStatus.UNPAID;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = true, length = 20)
+    private OrderType orderType = OrderType.POS_SALE;
+
     @Column(length = 500)
     private String notes;
 
@@ -128,6 +134,7 @@ public class Order {
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<Refund> refunds = new ArrayList<>();
+
 
     @PrePersist
     public void initializeDefaults() {
@@ -258,7 +265,7 @@ public class Order {
         // Calculer la taxe
         if (Boolean.TRUE.equals(isTaxable) && taxRate != null && taxRate.compareTo(BigDecimal.ZERO) > 0) {
             this.taxAmount = subtotal.multiply(taxRate)
-                    .divide(BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
+                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
         } else {
             this.taxAmount = BigDecimal.ZERO;
         }
@@ -338,4 +345,7 @@ public class Order {
         }
         return this.refunds;
     }
+
+
+
 }

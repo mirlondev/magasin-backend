@@ -108,7 +108,7 @@ public record OrderResponse(
         BigDecimal taxRate,
 
         // Notes
-        String notes,
+        org.odema.posnew.entity.enums.OrderType orderType, String notes,
 
         // Dates
         LocalDateTime createdAt,

@@ -1,41 +1,36 @@
-package org.odema.posnew.design.strategy;
+package org.odema.posnew.design.strategy.impl;
+
 import lombok.extern.slf4j.Slf4j;
+import org.odema.posnew.design.strategy.SaleStrategy;
+import org.odema.posnew.design.strategy.ValidationResult;
 import org.odema.posnew.dto.request.OrderRequest;
 import org.odema.posnew.entity.Order;
+import org.odema.posnew.entity.enums.DocumentType;
 import org.odema.posnew.entity.enums.OrderStatus;
 import org.odema.posnew.entity.enums.OrderType;
 import org.odema.posnew.entity.enums.PaymentStatus;
 import org.springframework.stereotype.Component;
- import  org.odema.posnew.entity.enums.DocumentType;
+
 import java.util.ArrayList;
 import java.util.List;
 
-
-
-
-
-
-
-
-
 @Slf4j
-@Component("posSaleStrategy")
-public class PosSaleStrategy implements SaleStrategy {
+@Component("proformaSaleStrategy")
+public class ProformaSaleStrategy implements SaleStrategy {
 
     @Override
     public ValidationResult validate(OrderRequest request, Order order) {
         List<String> errors = new ArrayList<>();
 
         if (request.items() == null || request.items().isEmpty()) {
-            errors.add("Le panier ne peut pas être vide pour une vente caisse");
+            errors.add("Le panier ne peut pas être vide pour un proforma");
         }
 
         if (order.getTotalAmount().compareTo(java.math.BigDecimal.ZERO) <= 0) {
             errors.add("Le montant total doit être supérieur à 0");
         }
 
-        // Pour vente caisse, on peut avoir ou non un client
-        // Pas d'obligation
+        // Client optionnel pour proforma
 
         return errors.isEmpty()
                 ? ValidationResult.success()
@@ -44,46 +39,42 @@ public class PosSaleStrategy implements SaleStrategy {
 
     @Override
     public void prepareOrder(Order order, OrderRequest request) {
-        log.info("Préparation vente caisse pour commande {}", order.getOrderNumber());
+        log.info("Préparation proforma pour commande {}", order.getOrderNumber());
 
-        // Statut initial PENDING
+        // Proforma reste en PENDING (c'est un devis)
         order.setStatus(OrderStatus.PENDING);
 
-        // Payment status sera UNPAID jusqu'à réception paiement
+        // Pas de paiement pour proforma (c'est juste une offre)
         order.setPaymentStatus(PaymentStatus.UNPAID);
 
-        // Notes spécifiques vente caisse
+        // Notes spécifiques proforma
         String notes = order.getNotes() != null ? order.getNotes() : "";
-        notes = "Vente caisse (POS)\n" + notes;
+        if (!notes.contains("PROFORMA") && !notes.contains("Devis")) {
+            notes = "PROFORMA / DEVIS\n" + notes;
+        }
         order.setNotes(notes.trim());
     }
 
     @Override
     public void finalizeOrder(Order order) {
-        log.info("Finalisation vente caisse {}", order.getOrderNumber());
+        log.info("Finalisation proforma {}", order.getOrderNumber());
 
-        // Si totalement payé, marquer comme complété
-        if (order.getPaymentStatus() == PaymentStatus.PAID) {
-            order.setStatus(OrderStatus.COMPLETED);
-            order.setCompletedAt(java.time.LocalDateTime.now());
-        }
+        // Proforma reste en PENDING
+        // Il devra être converti en vente réelle plus tard
     }
 
     @Override
     public DocumentType getDocumentType() {
-        return DocumentType.TICKET;
+        return DocumentType.PROFORMA;
     }
 
     @Override
     public OrderType getOrderType() {
-        return OrderType.POS_SALE;
+        return OrderType.PROFORMA;
     }
 
     @Override
     public boolean allowsPartialPayment() {
-        return true; // Vente caisse peut avoir paiements multiples
+        return false; // Proforma n'a pas de paiement
     }
 }
-
-
-

@@ -1,5 +1,6 @@
 package org.odema.posnew.controller;
 
+import com.itextpdf.text.DocumentException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -121,6 +122,8 @@ public class InvoiceController {
             return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
         } catch (IOException e) {
             return ResponseEntity.badRequest().build();
+        } catch (DocumentException e) {
+            throw new RuntimeException(e);
         }
     }
 

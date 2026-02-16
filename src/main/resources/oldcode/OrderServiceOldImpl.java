@@ -1,6 +1,5 @@
-package org.odema.posnew.service.impl;
+package oldcode;
 
-import lombok.RequiredArgsConstructor;
 import org.odema.posnew.dto.request.OrderItemRequest;
 import org.odema.posnew.dto.request.OrderRequest;
 import org.odema.posnew.dto.response.OrderResponse;
@@ -15,12 +14,10 @@ import org.odema.posnew.exception.NotFoundException;
 import org.odema.posnew.exception.UnauthorizedException;
 import org.odema.posnew.mapper.OrderMapper;
 import org.odema.posnew.repository.*;
-import org.odema.posnew.service.OrderService;
 import org.odema.posnew.service.PaymentService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -28,9 +25,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-@Service
-@RequiredArgsConstructor
-public class OrderServiceOldImpl implements OrderService {
+import static org.odema.posnew.design.template.OrderServiceTemplate.getOrderPrefix;
+
+//@Service
+//@RequiredArgsConstructor
+public class OrderServiceOldImpl  {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
@@ -465,20 +464,7 @@ public class OrderServiceOldImpl implements OrderService {
     }
 
     private String generateOrderNumber() {
-        String prefix = "ORD";
-        String timestamp = String.valueOf(System.currentTimeMillis());
-        String random = String.valueOf((int) (Math.random() * 1000));
-
-        String substring = timestamp.substring(timestamp.length() - 6);
-        String orderNumber = prefix + substring + random;
-
-        // Vérifier l'unicité
-        while (orderRepository.existsByOrderNumber(orderNumber)) {
-            random = String.valueOf((int) (Math.random() * 1000));
-            orderNumber = prefix + substring + random;
-        }
-
-        return orderNumber;
+        return getOrderPrefix(orderRepository);
     }
 
     private void updateInventoryForOrder(Order order) {

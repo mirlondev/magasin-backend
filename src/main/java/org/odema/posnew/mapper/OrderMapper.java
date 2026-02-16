@@ -48,6 +48,7 @@ public class OrderMapper {
 
                 order.getIsTaxable(),
                 order.getTaxRate(),
+                order.getOrderType(),
 
                 order.getNotes(),
 

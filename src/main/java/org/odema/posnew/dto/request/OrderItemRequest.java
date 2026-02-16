@@ -18,4 +18,10 @@ public record OrderItemRequest(
 
         String notes
 ) {
+    public BigDecimal discountAmount() {
+        if (discountPercentage == null) {
+            return BigDecimal.ZERO;
+        }
+        return discountPercentage.multiply(BigDecimal.valueOf(quantity)).divide(BigDecimal.valueOf(100));
+    }
 }

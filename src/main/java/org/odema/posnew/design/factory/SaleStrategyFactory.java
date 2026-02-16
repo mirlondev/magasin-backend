@@ -25,10 +25,11 @@ public class SaleStrategyFactory {
         }
 
         String strategyName = switch (orderType) {
-            case POS_SALE -> "poseSaleStrategy";
+            case POS_SALE -> "posSaleStrategy";
             case CREDIT_SALE -> "creditSaleStrategy";
             case PROFORMA -> "proformaSaleStrategy";
             case ONLINE -> "onlineSaleStrategy";
+            case RETURN, EXCHANGE -> null;
         };
 
         SaleStrategy strategy = strategies.get(strategyName);

@@ -1,9 +1,10 @@
 package org.odema.posnew.design.facade;
 
+import com.itextpdf.text.DocumentException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.odema.posnew.design.builder.InvoiceDocumentBuilder;
-import org.odema.posnew.design.builder.ReceiptDocumentBuilder;
+import org.odema.posnew.design.builder.impl.InvoiceDocumentBuilder;
+import org.odema.posnew.design.builder.impl.ReceiptDocumentBuilder;
 import org.odema.posnew.entity.enums.DocumentType;
 import org.odema.posnew.exception.BadRequestException;
 import org.odema.posnew.service.FileStorageService;
@@ -59,7 +60,7 @@ public class DocumentGenerationFacade {
         return directory + "/" + filename;
     }
 
-    private byte[] generateInvoice(Order order) {
+    private byte[] generateInvoice(Order order) throws DocumentException {
         return new InvoiceDocumentBuilder(order)
                 .initialize()
                 .addHeader()
@@ -70,7 +71,7 @@ public class DocumentGenerationFacade {
                 .build();
     }
 
-    private byte[] generateReceipt(Order order) {
+    private byte[] generateReceipt(Order order) throws DocumentException {
         return new ReceiptDocumentBuilder(order)
                 .initialize()
                 .addHeader()
@@ -81,7 +82,7 @@ public class DocumentGenerationFacade {
                 .build();
     }
 
-    private byte[] generateProforma(Order order) {
+    private byte[] generateProforma(Order order) throws DocumentException {
         // Proforma utilise le même template qu'Invoice mais avec titre différent
         // TODO: Créer ProformaDocumentBuilder si besoin de différences
         return new InvoiceDocumentBuilder(order)
