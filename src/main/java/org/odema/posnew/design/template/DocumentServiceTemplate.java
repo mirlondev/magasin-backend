@@ -1,6 +1,5 @@
 package org.odema.posnew.design.template;
 
-
 import com.itextpdf.text.DocumentException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -62,25 +61,30 @@ public abstract class DocumentServiceTemplate<T, R> {
         // 6. Générer le numéro de document unique
         String documentNumber = generateUniqueDocumentNumber(order, strategy);
 
-        // 7. Créer l'entité document
+        // 7. Créer l'entité document (sans ID pour l'instant)
         T document = createDocumentEntity(order, strategy, documentNumber);
 
-        // 8. Générer le PDF
-        byte[] pdfBytes = generatePdfDocument(document, strategy);
+        // 8. ✅ SAUVEGARDER D'ABORD pour obtenir l'ID généré
+        T savedDocument = saveDocument(document);
 
-        // 9. Sauvegarder le PDF
-        String pdfPath = savePdfDocument(document, pdfBytes, documentNumber);
+        log.debug("Document sauvegardé avec ID: {}", getDocumentId(savedDocument));
 
-        // 10. Mettre à jour l'entité avec le chemin PDF
-        updateDocumentWithPdfPath(document, pdfPath);
+        // 9. Générer le PDF (maintenant l'ID est disponible)
+        byte[] pdfBytes = generatePdfDocument(savedDocument, strategy);
 
-        // 11. Hook: Traitement post-génération
-        T savedDocument = afterDocumentGeneration(document, order, strategy);
+        // 10. Sauvegarder le PDF sur disque
+        String pdfPath = savePdfDocument(savedDocument, pdfBytes, documentNumber);
 
-        // 12. Sauvegarder l'entité finale
+        // 11. Mettre à jour l'entité avec le chemin PDF
+        updateDocumentWithPdfPath(savedDocument, pdfPath);
+
+        // 12. Re-sauvegarder avec le chemin PDF
         savedDocument = saveDocument(savedDocument);
 
-        // 13. Publier événement
+        // 13. Hook: Traitement post-génération
+        savedDocument = afterDocumentGeneration(savedDocument, order, strategy);
+
+        // 14. Publier événement
         publishDocumentEvent(savedDocument, order);
 
         log.info("Document {} généré avec succès", documentNumber);
@@ -118,79 +122,23 @@ public abstract class DocumentServiceTemplate<T, R> {
 
     // ========== MÉTHODES ABSTRAITES (à implémenter) ==========
 
-    /**
-     * Vérifie si un document existe déjà
-     */
     protected abstract void checkExistingDocument(Order order);
-
-    /**
-     * Crée l'entité document
-     */
-    protected abstract T createDocumentEntity(Order order,
-                                              DocumentStrategy strategy,
-                                              String documentNumber);
-
-    /**
-     * Génère le PDF du document
-     */
-    protected abstract byte[] generatePdfDocument(T document,
-                                                  DocumentStrategy strategy) throws DocumentException;
-
-    /**
-     * Met à jour l'entité avec le chemin PDF
-     */
+    protected abstract T createDocumentEntity(Order order, DocumentStrategy strategy, String documentNumber);
+    protected abstract byte[] generatePdfDocument(T document, DocumentStrategy strategy) throws DocumentException;
     protected abstract void updateDocumentWithPdfPath(T document, String pdfPath);
-
-    /**
-     * Hook après génération
-     */
-    protected abstract T afterDocumentGeneration(T document, Order order,
-                                                 DocumentStrategy strategy);
-
-    /**
-     * Sauvegarde le document
-     */
+    protected abstract T afterDocumentGeneration(T document, Order order, DocumentStrategy strategy);
     protected abstract T saveDocument(T document);
-
-    /**
-     * Publie l'événement
-     */
     protected abstract void publishDocumentEvent(T document, Order order);
-
-    /**
-     * Mappe vers le DTO de réponse
-     */
     protected abstract R mapToResponse(T document);
-
-    /**
-     * Charge un document par ID
-     */
     protected abstract T loadDocument(UUID documentId);
-
-    /**
-     * Vérifie si réimpression autorisée
-     */
     protected abstract void checkReprintAllowed(T document);
-
-    /**
-     * Incrémente le compteur d'impressions
-     */
     protected abstract void incrementPrintCount(T document);
-
-    /**
-     * Met à jour le statut lors de réimpression
-     */
     protected abstract void updateReprintStatus(T document);
-
-    /**
-     * Log la réimpression
-     */
     protected abstract void logReprint(T document);
-
-    /**
-     * Répertoire de stockage des PDFs
-     */
     protected abstract String getStorageDirectory();
+
+    // ✅ NEW: Helper to get document ID for logging
+    protected abstract UUID getDocumentId(T document);
 
     // ========== MÉTHODES CONCRÈTES COMMUNES ==========
 
@@ -200,17 +148,13 @@ public abstract class DocumentServiceTemplate<T, R> {
     }
 
     protected String generateUniqueDocumentNumber(Order order, DocumentStrategy strategy) {
-        // Implémentation dépendant du type de document
-        return null; // À surcharger dans les sous-classes si nécessaire
+        return null;
     }
 
-    protected String savePdfDocument(T document, byte[] pdfBytes,
-                                     String documentNumber) throws IOException {
+    protected String savePdfDocument(T document, byte[] pdfBytes, String documentNumber) throws IOException {
         String filename = documentNumber + ".pdf";
         String directory = getStorageDirectory();
-
         fileStorageService.storeFileFromBytes(pdfBytes, filename, directory);
-
         return directory + "/" + filename;
     }
 }

@@ -9,12 +9,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.dto.response.InvoiceResponse;
+import org.odema.posnew.exception.NotFoundException;
 import org.odema.posnew.service.InvoiceService;
 import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -303,5 +301,39 @@ public class InvoiceController {
             log.error("Erreur envoi email", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+    }
+
+    @GetMapping("/order/{orderId}/pdf")
+    public ResponseEntity<byte[]> downloadInvoicePdfOfOrder(@PathVariable UUID orderId) {
+        try {
+            // This will check disk first, generate only if needed
+            byte[] pdfBytes = invoiceService.getOrGenerateInvoicePdf(orderId);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_PDF);
+            headers.setContentDisposition(ContentDisposition.builder("inline")
+                    .filename("facture.pdf")
+                    .build());
+
+            return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
+
+        } catch (NotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            log.error("Erreur téléchargement PDF", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // Optional: Force regeneration endpoint
+    @PostMapping("/order/{orderId}/pdf/regenerate")
+    public ResponseEntity<byte[]> regenerateInvoicePdf(@PathVariable UUID orderId) {
+        try {
+            byte[] pdfBytes = invoiceService.regenerateInvoicePdf(orderId);
+            // ... return PDF
+        } catch (Exception e) {
+            // ... handle error
+        }
+        return null;
     }
 }

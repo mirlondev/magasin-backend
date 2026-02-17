@@ -29,11 +29,15 @@ import org.odema.posnew.service.FileStorageService;
 import org.odema.posnew.service.InvoiceService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -50,6 +54,7 @@ public class InvoiceServiceImpl
     private final InvoiceMapper invoiceMapper;
     private final InvoiceDocumentBuilder invoiceDocumentBuilder;
     private final ApplicationEventPublisher eventPublisher;
+    private final FileStorageService fileStorageService;
 
     @Value("${app.file.directories.invoices:invoices}")
     private String invoicesDirectory;
@@ -62,6 +67,10 @@ public class InvoiceServiceImpl
 
     @Value("${app.invoice.default-validity-days:30}")
     private int defaultValidityDays;
+
+    // Base path for file storage (configure this in application.properties)
+    @Value("${app.file.storage.base-path:./uploads}")
+    private String storageBasePath;
 
     public InvoiceServiceImpl(
             OrderRepository orderRepository,
@@ -78,6 +87,156 @@ public class InvoiceServiceImpl
         this.invoiceMapper = invoiceMapper;
         this.invoiceDocumentBuilder = invoiceDocumentBuilder;
         this.eventPublisher = eventPublisher;
+        this.fileStorageService = fileStorageService;
+    }
+
+    // =========================================================================
+    // PDF GENERATION WITH FILE CACHING - NEW METHOD
+    // =========================================================================
+
+    /**
+     * Get or generate PDF invoice with file-based caching.
+     * Checks disk first, generates only if file doesn't exist.
+     */
+    @Override
+    public byte[] getOrGenerateInvoicePdf(UUID orderId) throws IOException, DocumentException {
+        // 1. Check if invoice exists in database
+        Invoice invoice = invoiceRepository.findByOrder_OrderId(orderId)
+                .orElseThrow(() -> new NotFoundException(
+                        "Aucune facture trouvée pour la commande: " + orderId
+                ));
+
+        // 2. Check if PDF file already exists on disk
+        if (invoice.getPdfFilename() != null && !invoice.getPdfFilename().isBlank()) {
+            Path pdfPath = getInvoicePdfPath(invoice.getPdfFilename());
+
+            if (Files.exists(pdfPath)) {
+                log.info("PDF trouvé sur disque pour facture {}: {}",
+                        invoice.getInvoiceNumber(), pdfPath);
+
+                // Increment print count for tracking
+                invoice.incrementPrintCount();
+                invoiceRepository.save(invoice);
+
+                // Read and return existing file
+                return Files.readAllBytes(pdfPath);
+            }
+        }
+
+        // 3. File doesn't exist - generate new PDF
+        log.info("PDF non trouvé sur disque, génération pour facture {}",
+                invoice.getInvoiceNumber());
+
+        byte[] pdfBytes = buildPdfWithDecorators(invoice);
+
+        // 4. Save to disk
+        String filename = generatePdfFilename(invoice);
+        Path pdfPath = getInvoicePdfPath(filename);
+
+        // Ensure directory exists
+        Files.createDirectories(pdfPath.getParent());
+        Files.write(pdfPath, pdfBytes);
+
+        // 5. Update invoice with file path
+        invoice.setPdfFilename(filename);
+        invoice.setPdfPath(pdfPath.toString());
+        invoice.incrementPrintCount();
+        invoiceRepository.save(invoice);
+
+        log.info("PDF généré et sauvegardé: {} ({} bytes)", pdfPath, pdfBytes.length);
+
+        return pdfBytes;
+    }
+
+    /**
+     * Force regeneration of PDF (for reprint with updated data)
+     */
+    @Override
+    public byte[] regenerateInvoicePdf(UUID orderId) throws IOException, DocumentException {
+        Invoice invoice = invoiceRepository.findByOrder_OrderId(orderId)
+                .orElseThrow(() -> new NotFoundException(
+                        "Aucune facture trouvée pour la commande: " + orderId
+                ));
+
+        // Delete old file if exists
+        if (invoice.getPdfFilename() != null) {
+            Path oldPath = getInvoicePdfPath(invoice.getPdfFilename());
+            try {
+                Files.deleteIfExists(oldPath);
+                log.debug("Ancien PDF supprimé: {}", oldPath);
+            } catch (IOException e) {
+                log.warn("Impossible de supprimer l'ancien PDF: {}", oldPath);
+            }
+        }
+
+        // Generate new PDF
+        byte[] pdfBytes = buildPdfWithDecorators(invoice);
+
+        // Save with new filename (include timestamp to avoid cache issues)
+        String filename = generatePdfFilename(invoice) + "_ regenerated_" +
+                System.currentTimeMillis();
+        Path pdfPath = getInvoicePdfPath(filename);
+
+        Files.createDirectories(pdfPath.getParent());
+        Files.write(pdfPath, pdfBytes);
+
+        invoice.setPdfFilename(filename);
+        invoice.setPdfPath(pdfPath.toString());
+        invoice.incrementPrintCount();
+        invoiceRepository.save(invoice);
+
+        return pdfBytes;
+    }
+
+    /**
+     * Get PDF file as Resource for streaming (memory efficient for large files)
+     */
+    @Override
+    public Resource getInvoicePdfResource(UUID orderId) throws IOException {
+        Invoice invoice = invoiceRepository.findByOrder_OrderId(orderId)
+                .orElseThrow(() -> new NotFoundException(
+                        "Aucune facture trouvée pour la commande: " + orderId
+                ));
+
+        if (invoice.getPdfFilename() == null) {
+            throw new NotFoundException("PDF non généré pour la facture: " + invoice.getInvoiceNumber());
+        }
+
+        Path pdfPath = getInvoicePdfPath(invoice.getPdfFilename());
+
+        if (!Files.exists(pdfPath)) {
+            throw new NotFoundException("Fichier PDF non trouvé: " + pdfPath);
+        }
+
+        return new org.springframework.core.io.PathResource(pdfPath);
+    }
+
+    // =========================================================================
+    // EXISTING METHODS (keep for backward compatibility)
+    // =========================================================================
+
+    @Override
+    public byte[] generateInvoicePdf(UUID invoiceId) throws IOException, DocumentException {
+        Invoice invoice = loadDocument(invoiceId);
+
+        // Check disk first
+        if (invoice.getPdfFilename() != null) {
+            Path pdfPath = getInvoicePdfPath(invoice.getPdfFilename());
+            if (Files.exists(pdfPath)) {
+                invoice.incrementPrintCount();
+                invoiceRepository.save(invoice);
+                return Files.readAllBytes(pdfPath);
+            }
+        }
+
+        // Generate and save
+        byte[] pdfBytes = buildPdfWithDecorators(invoice);
+        savePdfToDisk(invoice, pdfBytes);
+
+        invoice.incrementPrintCount();
+        invoiceRepository.save(invoice);
+
+        return pdfBytes;
     }
 
     // =========================================================================
@@ -160,17 +319,6 @@ public class InvoiceServiceImpl
                 .stream()
                 .map(invoiceMapper::toResponse)
                 .toList();
-    }
-
-    @Override
-    public byte[] generateInvoicePdf(UUID invoiceId) throws IOException, DocumentException {
-        Invoice invoice = loadDocument(invoiceId);
-        // Incrémenter compteur sans changer le statut (réimpression silencieuse)
-        invoice.incrementPrintCount();
-        invoiceRepository.save(invoice);
-        log.info("PDF facture {} généré (impression #{})",
-                invoice.getInvoiceNumber(), invoice.getPrintCount());
-        return buildPdfWithDecorators(invoice);
     }
 
     @Override
@@ -276,7 +424,10 @@ public class InvoiceServiceImpl
 
         return invoiceMapper.toResponse(updated);
     }
-
+    @Override
+    protected UUID getDocumentId(Invoice document) {
+        return document.getInvoiceId();
+    }
     @Override
     public void sendInvoiceByEmail(UUID invoiceId, String email) throws Exception {
         Invoice invoice = loadDocument(invoiceId);
@@ -285,8 +436,8 @@ public class InvoiceServiceImpl
             throw new BadRequestException("L'adresse email est requise");
         }
 
-        // Générer le PDF
-        byte[] pdfBytes = buildPdfWithDecorators(invoice);
+        // Générer le PDF (or get from disk)
+        byte[] pdfBytes = getOrGenerateInvoicePdf(invoice.getOrder().getOrderId());
 
         // TODO: Intégration service email (Spring Mail / SendGrid / etc.)
         // emailService.sendInvoice(invoice, email, pdfBytes);
@@ -337,11 +488,6 @@ public class InvoiceServiceImpl
         }
 
         Order originalOrder = proforma.getOrder();
-
-        // TODO: Créer une vraie commande crédit à partir du proforma
-        // OrderRequest request = buildOrderRequestFromProforma(proforma);
-        // Order newOrder = orderService.createOrderFromProforma(request, cashierId);
-        // proforma.markAsConverted(newOrder);
 
         // Pour l'instant: marquer comme converti sur la même commande
         proforma.markAsConverted(originalOrder);
@@ -433,7 +579,17 @@ public class InvoiceServiceImpl
     @Override
     protected byte[] generatePdfDocument(Invoice invoice,
                                          DocumentStrategy strategy) throws DocumentException {
-        return buildPdfWithDecorators(invoice);
+        byte[] pdfBytes = buildPdfWithDecorators(invoice);
+
+        // Save to disk immediately after generation
+        try {
+            savePdfToDisk(invoice, pdfBytes);
+        } catch (IOException e) {
+            log.error("Erreur sauvegarde PDF sur disque", e);
+            // Continue - PDF is still returned even if disk save fails
+        }
+
+        return pdfBytes;
     }
 
     @Override
@@ -501,6 +657,37 @@ public class InvoiceServiceImpl
     @Override
     protected String getStorageDirectory() {
         return invoicesDirectory;
+    }
+
+    // =========================================================================
+    // FILE STORAGE HELPER METHODS
+    // =========================================================================
+
+    private Path getInvoicePdfPath(String filename) {
+        return Paths.get(storageBasePath, invoicesDirectory, filename);
+    }
+
+    private String generatePdfFilename(Invoice invoice) {
+        return String.format("INV_%s_%s.pdf",
+                invoice.getInvoiceNumber(),
+                invoice.getInvoiceId().toString().substring(0, 8));
+    }
+
+    private void savePdfToDisk(Invoice invoice, byte[] pdfBytes) throws IOException {
+        String filename = generatePdfFilename(invoice);
+        Path pdfPath = getInvoicePdfPath(filename);
+
+        // Ensure directory exists
+        Files.createDirectories(pdfPath.getParent());
+
+        // Write file
+        Files.write(pdfPath, pdfBytes);
+
+        // Update invoice entity
+        invoice.setPdfFilename(filename);
+        invoice.setPdfPath(pdfPath.toString());
+
+        log.debug("PDF sauvegardé sur disque: {}", pdfPath);
     }
 
     // =========================================================================

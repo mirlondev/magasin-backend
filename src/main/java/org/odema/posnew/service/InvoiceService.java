@@ -2,6 +2,7 @@ package org.odema.posnew.service;
 
 import com.itextpdf.text.DocumentException;
 import org.odema.posnew.dto.response.InvoiceResponse;
+import org.springframework.core.io.Resource;
 
 import java.io.IOException;
 import java.time.LocalDate;
@@ -44,4 +45,16 @@ public interface InvoiceService {
     InvoiceResponse reprintInvoice(UUID invoiceId);
 
     InvoiceResponse convertProformaToSale(UUID proformaId);
+    byte[] getOrGenerateInvoicePdf(UUID orderId) throws IOException, DocumentException;
+
+    /**
+     * Force PDF regeneration (deletes old file)
+     */
+    byte[] regenerateInvoicePdf(UUID orderId) throws IOException, DocumentException;
+
+    /**
+     * Get PDF as Resource for streaming
+     */
+    Resource getInvoicePdfResource(UUID orderId) throws IOException;
+
 }

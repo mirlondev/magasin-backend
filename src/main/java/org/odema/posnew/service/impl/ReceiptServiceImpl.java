@@ -537,6 +537,11 @@ public class ReceiptServiceImpl
         return receiptsDirectory;
     }
 
+    @Override
+    protected UUID getDocumentId(Receipt document) {
+        return null;
+    }
+
     // =========================================================================
     // MÉTHODES UTILITAIRES PRIVÉES
     // =========================================================================
@@ -544,7 +549,7 @@ public class ReceiptServiceImpl
     /**
      * Construit le PDF du ticket selon son type (Builder Pattern)
      */
-    private byte[] buildReceiptPdf(Receipt receipt) throws DocumentException {
+  /*  private byte[] buildReceiptPdf(Receipt receipt) throws DocumentException {
         DocumentBuilder builder;
 
         // Tickets caisse (shift) → builder minimaliste
@@ -563,7 +568,38 @@ public class ReceiptServiceImpl
                 .addFooter()
                 .build();
     }
+*/
 
+    private byte[] buildReceiptPdf(Receipt receipt) throws DocumentException {
+        DocumentBuilder builder;
+
+        if (isShiftReceipt(receipt.getReceiptType())) {
+            builder = new ShiftReceiptDocumentBuilder(receipt);
+        } else {
+            // ✅ Créer le builder avec configuration explicite
+            ReceiptDocumentBuilder receiptBuilder = new ReceiptDocumentBuilder(receipt.getOrder());
+
+            // TODO: Injecter ces valeurs depuis application.properties ou les passer en paramètre
+            receiptBuilder.withConfig(
+                    "ODEMA POS",  // ou depuis @Value
+                    "123 Rue Principale, Pointe-Noire",
+                    "+237 6XX XX XX XX",
+                    "TAX123456789",
+                    "Merci de votre confiance !"
+            );
+
+            builder = receiptBuilder;
+        }
+
+        return builder
+                .initialize()
+                .addHeader()
+                .addMainInfo()
+                .addItemsTable()
+                .addTotals()
+                .addFooter()
+                .build();
+    }
     /**
      * Génère les données ESC/POS pour imprimante thermique
      */
