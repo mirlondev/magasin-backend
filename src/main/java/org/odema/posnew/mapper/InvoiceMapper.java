@@ -1,67 +1,61 @@
-package org.odema.posnew.mapper;
+package  org.odema.posnew.mapper;
 
-import org.odema.posnew.entity.Invoice;
 import org.odema.posnew.dto.response.InvoiceResponse;
+import org.odema.posnew.entity.Invoice;
+import org.odema.posnew.service.FileStorageService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-
-import java.util.UUID;
 
 @Component
 public class InvoiceMapper {
 
-    public InvoiceResponse toResponse(Invoice invoice) {
-        if (invoice == null) return null;
-        UUID customerId = null;
-        String customerName = "N/A";
-        String customerEmail = "N/A";
-        String customerPhone = "N/A";
+    @Value("${app.file.directories.invoices:invoices}")
+    private String invoicesDirectory;
 
-        if (invoice.getCustomer() != null) {
-            customerId = invoice.getCustomer().getCustomerId();
-            customerName = invoice.getCustomer().getFullName();
-            customerEmail = invoice.getCustomer().getEmail();
-            customerPhone = invoice.getCustomer().getPhone();
-        }
+    private final FileStorageService fileStorageService;
+
+    public InvoiceMapper(FileStorageService fileStorageService) {
+        this.fileStorageService = fileStorageService;
+    }
+
+    public InvoiceResponse toResponse(Invoice invoice) {
+        String pdfUrl = invoice.getPdfFilename() != null
+                ? fileStorageService.getFileUrl(invoice.getPdfFilename(), invoicesDirectory)
+                : null;
 
         return new InvoiceResponse(
-                invoice.getInvoiceId(),
+                invoice.getInvoiceId().toString(),
                 invoice.getInvoiceNumber(),
-
-                invoice.getOrder() != null ? invoice.getOrder().getOrderId() : null,
-                invoice.getOrder() != null ? invoice.getOrder().getOrderNumber() : null,
-
-                customerId,
-                customerName,
-                customerEmail,
-                customerPhone,
-
-
-                invoice.getStore() != null ? invoice.getStore().getStoreId() : null,
-                invoice.getStore() != null ? invoice.getStore().getName() : null,
-
+                invoice.getInvoiceType(),
+                invoice.getStatus(),
+                invoice.getOrder().getOrderId().toString(),
+                invoice.getOrder().getOrderNumber(),
+                invoice.getCustomer() != null ? invoice.getCustomer().getCustomerId().toString() : null,
+                invoice.getCustomer() != null ? invoice.getCustomer().getFullName() : null,
+                invoice.getStore().getStoreId().toString(),
+                invoice.getStore().getName(),
+                invoice.getInvoiceDate(),
+                invoice.getPaymentDueDate(),
+                invoice.getValidityDays(),
                 invoice.getSubtotal(),
                 invoice.getTaxAmount(),
                 invoice.getDiscountAmount(),
                 invoice.getTotalAmount(),
                 invoice.getAmountPaid(),
                 invoice.getAmountDue(),
-
-                invoice.getStatus(),
                 invoice.getPaymentMethod(),
-
-                invoice.getInvoiceDate(),
-                invoice.getPaymentDueDate(),
-
-                invoice.getPdfFilename(),
-                invoice.getPdfPath() != null ?
-                        "/api/files/view/invoices/" + invoice.getPdfFilename() : null,
-
+                pdfUrl,
+                invoice.getPrintCount(),
+                invoice.getLastPrintedAt(),
+                invoice.getConvertedToSale(),
+                invoice.getConvertedAt(),
+                invoice.getConvertedOrder() != null
+                        ? invoice.getConvertedOrder().getOrderId().toString()
+                        : null,
                 invoice.getNotes(),
-                invoice.getCreatedAt(),
-                invoice.getUpdatedAt(),
                 invoice.getIsActive(),
-                invoice.isPaid(),
-                invoice.isOverdue()
+                invoice.getCreatedAt(),
+                invoice.getUpdatedAt()
         );
     }
 }

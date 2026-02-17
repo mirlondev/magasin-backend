@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -100,5 +101,8 @@ Optional<Order> findByIdWithPayments(@Param("orderId") UUID orderId);
             @Param("cashierId") UUID cashierId,
             @Param("shiftId") UUID shiftId
     );
+
+    @Query("SELECT COUNT(o) FROM Order o WHERE CAST(o.createdAt AS date) = :date")
+    Long countByCreatedAtDate(@Param("date") LocalDate date);
 
 }

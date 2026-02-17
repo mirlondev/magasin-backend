@@ -21,5 +21,7 @@ public interface FileStorageService {
     boolean isValidFile(MultipartFile file);
     long getFileSize(MultipartFile file);
     String storeFileFromBytes(byte[] fileBytes, String filename, String directory) throws IOException;
+    byte[] readFileAsBytes(String filename, String directory) throws IOException;
+
 
 }

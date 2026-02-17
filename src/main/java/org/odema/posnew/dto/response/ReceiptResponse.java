@@ -1,57 +1,49 @@
-// ReceiptResponse.java - DTO plat sans références circulaires
 package org.odema.posnew.dto.response;
 
-import lombok.Builder;
-import lombok.Data;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import org.odema.posnew.entity.Invoice;
+import org.odema.posnew.entity.enums.InvoiceStatus;
+import org.odema.posnew.entity.enums.InvoiceType;
+import org.odema.posnew.entity.enums.ReceiptStatus;
+import org.odema.posnew.entity.enums.ReceiptType;
+import org.odema.posnew.service.FileStorageService;
+import org.springframework.stereotype.Component;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 
-@Data
-@Builder
-public class ReceiptResponse {
-    // IDs uniquement, pas d'objets complets
-    private UUID orderId;
-    private String orderNumber;
+public record ReceiptResponse(
+        String receiptId,
+        String receiptNumber,
+        ReceiptType receiptType,
+        ReceiptStatus status,
+        String orderId,
+        String orderNumber,
+        String shiftReportId,
+        String cashierId,
+        String cashierName,
+        String storeId,
+        String storeName,
 
-    // Données primitives uniquement
-    private String customerName;
-    private String customerPhone;
-    private String cashierName;
-    private String storeName;
-    private String storeAddress;
-    private String storePhone;
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime receiptDate,
 
-    // Liste d'items DTO, pas d'entités
-    private List<ReceiptItemDto> items;
+        BigDecimal totalAmount,
+        BigDecimal amountPaid,
+        BigDecimal changeAmount,
+        String paymentMethod,
+        String pdfUrl,
+        Integer printCount,
 
-    // Totaux
-    private BigDecimal subtotal;
-    private BigDecimal taxAmount;
-    private BigDecimal discountAmount;
-    private BigDecimal totalAmount;
-    private BigDecimal totalPaid;
-    private BigDecimal remainingAmount;
-    private BigDecimal changeAmount;
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime lastPrintedAt,
 
-    // Paiements simplifiés
-    private Map<String, BigDecimal> paymentsByMethod; // "CASH" -> 5000
-    private BigDecimal creditAmount;
+        String notes,
+        Boolean isActive,
 
-    private String notes;
-    private LocalDateTime createdAt;
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime createdAt,
 
-    // DTO interne statique
-    @Data
-    @Builder
-    public static class ReceiptItemDto {
-        private String productName;
-        private String productSku;
-        private Integer quantity;
-        private BigDecimal unitPrice;
-        private BigDecimal finalPrice;
-        private BigDecimal discountAmount;
-    }
-}
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime updatedAt
+) {}

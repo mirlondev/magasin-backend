@@ -1,48 +1,58 @@
+
 package org.odema.posnew.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import org.odema.posnew.entity.enums.InvoiceStatus;
+import org.odema.posnew.entity.enums.InvoiceType;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 public record InvoiceResponse(
-        UUID invoiceId,
+        String invoiceId,
         String invoiceNumber,
-
-        UUID orderId,
+        InvoiceType invoiceType,
+        InvoiceStatus status,
+        String orderId,
         String orderNumber,
-
-        UUID customerId,
+        String customerId,
         String customerName,
-        String customerEmail,
-        String customerPhone,
-
-        UUID storeId,
+        String storeId,
         String storeName,
 
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime invoiceDate,
+
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime paymentDueDate,
+
+        Integer validityDays,
         BigDecimal subtotal,
         BigDecimal taxAmount,
         BigDecimal discountAmount,
         BigDecimal totalAmount,
         BigDecimal amountPaid,
         BigDecimal amountDue,
-
-        InvoiceStatus status,
         String paymentMethod,
-
-        LocalDateTime invoiceDate,
-        LocalDateTime paymentDueDate,
-
-        String pdfFilename,
         String pdfUrl,
+        Integer printCount,
 
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime lastPrintedAt,
+
+        Boolean convertedToSale,
+
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime convertedAt,
+
+        String convertedOrderId,
         String notes,
-        LocalDateTime createdAt,
-        LocalDateTime updatedAt,
-
         Boolean isActive,
-        Boolean isPaid,
-        Boolean isOverdue
-) {
-}
+
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime createdAt,
+
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+        LocalDateTime updatedAt
+) {}
+

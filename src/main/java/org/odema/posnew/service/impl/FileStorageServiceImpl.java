@@ -148,4 +148,17 @@ public class FileStorageServiceImpl implements FileStorageService {
     private Path getFilePath(String filename, String directory) {
         return Paths.get(storagePath).resolve(directory).resolve(filename).normalize();
     }
+
+
+    @Override
+    public byte[] readFileAsBytes(String filename, String directory) throws IOException {
+        // ✅ Utiliser getFilePath pour respecter la structure: storagePath/directory/filename
+        Path filePath = getFilePath(filename, directory);
+
+        if (!Files.exists(filePath)) {
+            log.warn("Fichier PDF introuvable: {}", filePath.toAbsolutePath());
+            throw new IOException("Fichier introuvable: " + filePath);
+        }
+        return Files.readAllBytes(filePath);
+    }
 }

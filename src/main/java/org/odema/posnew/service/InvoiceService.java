@@ -40,4 +40,8 @@ public interface InvoiceService {
     List<InvoiceResponse> getOverdueInvoices();
 
     Double getTotalOutstandingAmount();
+
+    InvoiceResponse reprintInvoice(UUID invoiceId);
+
+    InvoiceResponse convertProformaToSale(UUID proformaId);
 }

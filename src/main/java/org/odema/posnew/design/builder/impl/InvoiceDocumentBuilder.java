@@ -414,15 +414,6 @@ public class InvoiceDocumentBuilder extends AbstractPdfDocumentBuilder {
 
     private void addTotalRow(PdfPTable table, String label, String value,
                              Font labelFont, Font valueFont) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, labelFont));
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setPadding(5);
-        table.addCell(labelCell);
-
-        PdfPCell valueCell = new PdfPCell(new Phrase(value, valueFont));
-        valueCell.setBorder(Rectangle.NO_BORDER);
-        valueCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        valueCell.setPadding(5);
-        table.addCell(valueCell);
+        ShiftReceiptDocumentBuilder.getPdfCell(table, label, value, labelFont, valueFont);
     }
 }

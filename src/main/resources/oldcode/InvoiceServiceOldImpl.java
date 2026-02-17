@@ -5,6 +5,7 @@ import com.itextpdf.text.*;
 import com.itextpdf.text.pdf.*;
 import com.itextpdf.text.pdf.draw.LineSeparator;
 import org.odema.posnew.design.builder.impl.InvoiceDocumentBuilder;
+import org.odema.posnew.design.builder.impl.ShiftReceiptDocumentBuilder;
 import org.odema.posnew.dto.response.InvoiceResponse;
 import org.odema.posnew.entity.*;
 import org.odema.posnew.entity.enums.InvoiceStatus;
@@ -670,16 +671,7 @@ public class InvoiceServiceOldImpl  {
 
     private void addTotalRow(PdfPTable table, String label, String value,
                              Font labelFont, Font valueFont) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, labelFont));
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setPadding(5);
-        table.addCell(labelCell);
-
-        PdfPCell valueCell = new PdfPCell(new Phrase(value, valueFont));
-        valueCell.setBorder(Rectangle.NO_BORDER);
-        valueCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        valueCell.setPadding(5);
-        table.addCell(valueCell);
+        ShiftReceiptDocumentBuilder.getPdfCell(table, label, value, labelFont, valueFont);
     }
 
     private PdfPCell createStyledCell(String text, Font font, int alignment,
