@@ -70,7 +70,10 @@ public class Order {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
-
+    // ⚠️ DEPRECATED - For backward compatibility only
+    @Column(precision = 12, scale = 2)
+    @Deprecated
+    private BigDecimal amountPaid = BigDecimal.ZERO;
 
     @Column(precision = 12, scale = 2)
     private BigDecimal changeAmount = BigDecimal.ZERO;
@@ -79,6 +82,11 @@ public class Order {
     @Column(nullable = false, length = 20)
     private OrderStatus status = OrderStatus.PENDING;
 
+    // ⚠️ DEPRECATED - Use Payment.method instead
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    @Deprecated
+    private PaymentMethod paymentMethod = PaymentMethod.CASH;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
