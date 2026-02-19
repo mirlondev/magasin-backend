@@ -1,11 +1,14 @@
 package org.odema.posnew.service;
 
+import org.odema.posnew.design.context.DocumentBuildContext;
 import org.odema.posnew.dto.response.ReceiptResponse;
 
+import org.odema.posnew.entity.Receipt;
 import org.odema.posnew.entity.enums.ReceiptType;
 
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -15,7 +18,7 @@ public interface ReceiptService {
     /**
      * Génère un ticket pour une commande
      */
-    ReceiptResponse generateReceipt(UUID orderId, ReceiptType type) throws IOException;
+    ReceiptResponse generateReceipt(UUID orderId, ReceiptType type) ;
 
     /**
      * Récupère un ticket par son ID
@@ -74,24 +77,29 @@ public interface ReceiptService {
     /**
      * Génère un ticket d'ouverture de caisse
      */
-    ReceiptResponse generateShiftOpeningReceipt(UUID shiftReportId) throws IOException;
+    ReceiptResponse generateShiftOpeningReceipt(UUID shiftReportId);
 
     /**
      * Génère un ticket de fermeture de caisse
      */
-    ReceiptResponse generateShiftClosingReceipt(UUID shiftReportId) throws IOException;
+    ReceiptResponse generateShiftClosingReceipt(UUID shiftReportId) ;
 
     /**
      * Génère un ticket d'entrée d'argent
      */
     ReceiptResponse generateCashInReceipt(UUID shiftReportId,
                                           Double amount,
-                                          String reason) throws IOException;
+                                          String reason);
 
     /**
      * Génère un ticket de sortie d'argent
      */
     ReceiptResponse generateCashOutReceipt(UUID shiftReportId,
                                            Double amount,
-                                           String reason) throws IOException;
-}
+                                           String reason) ;
+
+    // Cas manquants
+    ReceiptResponse generatePaymentReceivedReceipt(UUID orderId, BigDecimal amount, String notes);
+    ReceiptResponse generateVoidReceipt(UUID receiptId, String reason);
+    ReceiptResponse generateDeliveryNoteReceipt(UUID orderId);
+    }

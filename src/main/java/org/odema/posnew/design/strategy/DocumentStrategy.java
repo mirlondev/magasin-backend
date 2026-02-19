@@ -1,47 +1,46 @@
 package org.odema.posnew.design.strategy;
-// strategy/DocumentStrategy.java
-
 
 import org.odema.posnew.entity.Order;
 import org.odema.posnew.entity.enums.DocumentType;
 
 /**
- * Strategy pour déterminer le type de document à générer
+ * Interface du pattern Strategy pour la génération de documents.
+ * Chaque stratégie définit comment générer un type spécifique de document.
  */
 public interface DocumentStrategy {
+
     /**
-     * Détermine si cette stratégie peut générer un document pour cette commande
+     * Vérifie si cette stratégie peut générer un document pour la commande donnée
      */
     boolean canGenerate(Order order);
 
     /**
-     * Type de document généré par cette stratégie
+     * Retourne le type de document géré par cette stratégie
      */
     DocumentType getDocumentType();
 
     /**
-     * Valide si le document peut être créé
+     * Valide que la commande peut recevoir un document de ce type
      */
     ValidationResult validateForGeneration(Order order);
 
     /**
-     * Prépare les données spécifiques avant génération
+     * Prépare les données spécifiques avant la génération
      */
     void prepareDocumentData(Order order);
 
     /**
-     * Numéro de document unique
+     * Génère le numéro de document
      */
     String generateDocumentNumber();
 
     /**
-     * Le document peut-il être réimprimé
+     * Indique si ce type de document autorise les réimpressions
      */
     boolean allowsReprint();
 
     /**
-     * Le document peut-il être annulé
+     * Indique si ce type de document peut être annulé
      */
     boolean allowsVoid();
 }
-

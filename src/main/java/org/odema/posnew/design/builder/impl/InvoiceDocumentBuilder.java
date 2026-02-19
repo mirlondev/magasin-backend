@@ -1,10 +1,7 @@
 package org.odema.posnew.design.builder.impl;
 
-import com.itextpdf.text.*;
-import com.itextpdf.text.pdf.*;
-import com.itextpdf.text.pdf.draw.LineSeparator;
+import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
-import org.jspecify.annotations.NonNull;
 import org.odema.posnew.design.builder.DocumentBuilder;
 import org.odema.posnew.entity.Customer;
 import org.odema.posnew.entity.Order;
@@ -13,777 +10,483 @@ import org.odema.posnew.entity.Payment;
 import org.odema.posnew.entity.enums.PaymentStatus;
 import org.springframework.stereotype.Component;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * Builder pour factures professionnelles A4
- * Design moderne avec couleurs, logos, QR codes, et tous les champs légaux
- */
 @Slf4j
 @Component
 public class InvoiceDocumentBuilder extends AbstractPdfDocumentBuilder {
 
-    // Couleurs professionnelles
-    private static final BaseColor PRIMARY_COLOR = new BaseColor(41, 128, 185);    // Bleu professionnel
-    private static final BaseColor SECONDARY_COLOR = new BaseColor(52, 152, 219);  // Bleu clair
-    private static final BaseColor ACCENT_COLOR = new BaseColor(231, 76, 60);      // Rouge pour alertes
-    private static final BaseColor SUCCESS_COLOR = new BaseColor(39, 174, 96);    // Vert pour succès
-    private static final BaseColor TEXT_DARK = new BaseColor(44, 62, 80);         // Texte principal
-    private static final BaseColor TEXT_LIGHT = new BaseColor(127, 140, 141);     // Texte secondaire
-    private static final BaseColor BG_LIGHT = new BaseColor(236, 240, 241);       // Fond gris clair
-    private static final BaseColor WHITE = BaseColor.WHITE;
+    private static final DateTimeFormatter FMT_DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    private static final DateTimeFormatter FMT_DT   = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-    private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
+    private String companyName        = "ODEMA POS";
+    private String companyAddress     = "123 Rue Principale, Pointe-Noire";
+    private String companyPhone       = "+237 6XX XX XX XX";
+    private String companyEmail       = "contact@odema.com";
+    private String companyTaxId       = "TAX-123456789";
+    private String companyBankAccount = "CM21 1234 5678 9012 3456 7890 123";
+    private String companyBankName    = "Banque Atlantique";
+    private String companyWebsite     = "www.odema.com";
+    private String companyLogoPath    = "static/logo.png";
 
-    // Valeurs configurables avec fallback
-    private String companyName = "ODEMA POS";
-    private String companyAddress = "123 Rue Principale, Pointe-Noire";
-    private String companyPhone = "+237 6XX XX XX XX";
-    private String companyEmail = "contact@odema.com";
-    private String companyTaxId = "TAX-123456789";
-    private String companyBankAccount = "IBAN: CM21 1234 5678 9012 3456 7890 123";
-    private String companyBankName = "Banque Atlantique";
-    private String companyWebsite = "www.odema.com";
-    private String companyLogoPath = "static/logo.png";
+    private final StringBuilder html = new StringBuilder();
 
-    public InvoiceDocumentBuilder() {
-        super(null);
-    }
+    public InvoiceDocumentBuilder() { super(null); }
+    public InvoiceDocumentBuilder(Order order) { super(order); }
 
-    public InvoiceDocumentBuilder(Order order) {
-        super(order);
-    }
-
-    public InvoiceDocumentBuilder withConfig(String companyName, String companyAddress,
-                                             String companyPhone, String companyEmail,
-                                             String companyTaxId, String companyBankAccount,
-                                             String companyBankName, String companyWebsite) {
-        if (companyName != null) this.companyName = companyName;
-        if (companyAddress != null) this.companyAddress = companyAddress;
-        if (companyPhone != null) this.companyPhone = companyPhone;
-        if (companyEmail != null) this.companyEmail = companyEmail;
-        if (companyTaxId != null) this.companyTaxId = companyTaxId;
+    public InvoiceDocumentBuilder withConfig(
+            String companyName, String companyAddress,
+            String companyPhone, String companyEmail,
+            String companyTaxId, String companyBankAccount,
+            String companyBankName, String companyWebsite) {
+        if (companyName        != null) this.companyName        = companyName;
+        if (companyAddress     != null) this.companyAddress     = companyAddress;
+        if (companyPhone       != null) this.companyPhone       = companyPhone;
+        if (companyEmail       != null) this.companyEmail       = companyEmail;
+        if (companyTaxId       != null) this.companyTaxId       = companyTaxId;
         if (companyBankAccount != null) this.companyBankAccount = companyBankAccount;
-        if (companyBankName != null) this.companyBankName = companyBankName;
-        if (companyWebsite != null) this.companyWebsite = companyWebsite;
+        if (companyBankName    != null) this.companyBankName    = companyBankName;
+        if (companyWebsite     != null) this.companyWebsite     = companyWebsite;
         return this;
     }
 
+    // ════════════════════════════════════════════════════════════════════════════
+    // INITIALIZE
+    //
+    // FIX #1 — openhtmltopdf attend du XHTML valide (parser SAX strict).
+    //   → Toujours commencer par <?xml ...?> + DOCTYPE XHTML + xmlns
+    //   → Ne JAMAIS utiliser &nbsp; &mdash; &middot; directement dans le HTML :
+    //     ce sont des entités HTML4 inconnues du parser XML.
+    //     Utiliser leurs équivalents numériques : &#160; &#8212; &#183; etc.
+    // ════════════════════════════════════════════════════════════════════════════
     @Override
     public DocumentBuilder initialize() {
-        this.document = new Document(PageSize.A4, 36, 36, 36, 36); // Marges 0.5 inch
-        this.outputStream = new java.io.ByteArrayOutputStream();
-
-        try {
-            PdfWriter writer = PdfWriter.getInstance(document, outputStream);
-            document.open();
-            log.debug("Document facture A4 initialisé");
-        } catch (DocumentException e) {
-            log.error("Erreur initialisation facture", e);
-            throw new RuntimeException(e);
-        }
+        this.outputStream = new ByteArrayOutputStream();
+        html.setLength(0);
+        html.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+                .append("<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" ")
+                .append("\"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">")
+                .append("<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"fr\" lang=\"fr\">")
+                .append("<head>")
+                .append("<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"/>")
+                .append("<style>").append(buildCss()).append("</style>")
+                .append("</head><body>");
+        log.debug("InvoiceDocumentBuilder HTML initialisé");
         return this;
     }
 
+    // ════════════════════════════════════════════════════════════════════════════
+    // HEADER
+    // Note: utiliser des tables HTML (pas display:table) — meilleur support XHTML
+    // ════════════════════════════════════════════════════════════════════════════
     @Override
     public DocumentBuilder addHeader() {
-        try {
-            // Tableau principal header
-            PdfPTable headerTable = new PdfPTable(2);
-            headerTable.setWidthPercentage(100);
-            headerTable.setWidths(new float[]{1.2f, 1f});
-            headerTable.setSpacingAfter(20);
+        String logoHtml = buildLogoTag();
 
-            // === COLONNE GAUCHE: Logo et entreprise ===
-            PdfPCell leftCell = new PdfPCell();
-            leftCell.setBorder(Rectangle.NO_BORDER);
-            leftCell.setPadding(5);
+        html.append("<table class=\"invoice-header\"><tr>")
+                .append("<td class=\"header-left\">")
+                .append(logoHtml)
+                .append("<div class=\"company-name\">").append(esc(companyName)).append("</div>")
+                .append("<div class=\"company-sub\">").append(esc(companyAddress)).append("</div>")
+                .append("<div class=\"company-contacts\">")
+                .append(esc(companyPhone)).append(" &#183; ").append(esc(companyEmail))
+                .append("<br/>NIF: ").append(esc(companyTaxId))
+                .append(" &#183; ").append(esc(companyWebsite))
+                .append("</div>")
+                .append("</td>")
+                .append("<td class=\"header-right\">")
+                .append("<div class=\"invoice-badge\">FACTURE</div>")
+                .append("<table class=\"meta-table\">")
+                .append(metaRow("N&#176;",         esc(order.getOrderNumber())))
+                .append(metaRow("&#201;mission",   LocalDateTime.now().format(FMT_DATE)))
+                .append(metaRow("&#201;ch&#233;ance", LocalDateTime.now().plusDays(30).format(FMT_DATE)))
+                .append(metaRow("R&#233;f&#233;rence", "REF-" + safeRef()))
+                .append("</table>")
+                .append("</td>")
+                .append("</tr></table>");
 
-            // Logo (si disponible)
-            addLogo(leftCell);
-
-            // Nom entreprise stylisé
-            Font companyFont = new Font(Font.FontFamily.HELVETICA, 24, Font.BOLD, PRIMARY_COLOR);
-            Paragraph company = new Paragraph(companyName.toUpperCase(), companyFont);
-            company.setSpacingAfter(5);
-            leftCell.addElement(company);
-
-            // Slogan
-            Font sloganFont = new Font(Font.FontFamily.HELVETICA, 10, Font.ITALIC, TEXT_LIGHT);
-            Paragraph slogan = new Paragraph("Votre partenaire commercial de confiance", sloganFont);
-            slogan.setSpacingAfter(10);
-            leftCell.addElement(slogan);
-
-            // Coordonnées entreprise
-            Font contactFont = new Font(Font.FontFamily.HELVETICA, 9, Font.NORMAL, TEXT_DARK);
-            Paragraph contacts = new Paragraph();
-            contacts.setLeading(12);
-            contacts.add(new Chunk("📍 " + companyAddress + "\n", contactFont));
-            contacts.add(new Chunk("📞 " + companyPhone + "\n", contactFont));
-            contacts.add(new Chunk("✉ " + companyEmail + "\n", contactFont));
-            contacts.add(new Chunk("🌐 " + companyWebsite + "\n", contactFont));
-            contacts.add(new Chunk("NIF: " + companyTaxId, new Font(Font.FontFamily.HELVETICA, 9, Font.BOLD, TEXT_DARK)));
-            leftCell.addElement(contacts);
-
-            headerTable.addCell(leftCell);
-
-            // === COLONNE DROITE: Type document et infos légales ===
-            PdfPCell rightCell = new PdfPCell();
-            rightCell.setBorder(Rectangle.NO_BORDER);
-            rightCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-            rightCell.setPadding(5);
-
-            // Badge FACTURE stylisé
-            PdfPTable badgeTable = new PdfPTable(1);
-            badgeTable.setWidthPercentage(60);
-            badgeTable.setHorizontalAlignment(Element.ALIGN_RIGHT);
-
-            PdfPCell badgeCell = new PdfPCell(new Phrase("FACTURE",
-                    new Font(Font.FontFamily.HELVETICA, 28, Font.BOLD, WHITE)));
-            badgeCell.setBackgroundColor(PRIMARY_COLOR);
-            badgeCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-            badgeCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-            badgeCell.setPadding(15);
-            badgeCell.setBorder(Rectangle.NO_BORDER);
-            badgeCell.setCellEvent(new RoundRectangle(8));
-            badgeTable.addCell(badgeCell);
-
-            rightCell.addElement(badgeTable);
-
-            // Numéro et date
-            Font infoLabelFont = new Font(Font.FontFamily.HELVETICA, 9, Font.NORMAL, TEXT_LIGHT);
-            Font infoValueFont = new Font(Font.FontFamily.HELVETICA, 11, Font.BOLD, TEXT_DARK);
-
-            PdfPTable infoTable = new PdfPTable(2);
-            infoTable.setWidthPercentage(100);
-            infoTable.setSpacingBefore(15);
-            infoTable.getDefaultCell().setBorder(Rectangle.NO_BORDER);
-
-            addInfoPair(infoTable, "N° Facture:", order.getOrderNumber(), infoLabelFont, infoValueFont);
-            addInfoPair(infoTable, "Date d'émission:",
-                    LocalDateTime.now().format(DATE_FORMATTER), infoLabelFont, infoValueFont);
-            addInfoPair(infoTable, "Date échéance:",
-                    calculateDueDate().format(DATE_FORMATTER), infoLabelFont, infoValueFont);
-            addInfoPair(infoTable, "Référence:",
-                    "REF-" + order.getOrderNumber().substring(4), infoLabelFont, infoValueFont);
-
-            rightCell.addElement(infoTable);
-            headerTable.addCell(rightCell);
-
-            document.add(headerTable);
-
-            // Ligne de séparation décorative
-            addDecorativeLine();
-
-            log.debug("En-tête facture ajouté");
-
-        } catch (DocumentException e) {
-            log.error("Erreur en-tête facture", e);
-            throw new RuntimeException(e);
-        }
         return this;
     }
 
+    // ════════════════════════════════════════════════════════════════════════════
+    // MAIN INFO
+    // ════════════════════════════════════════════════════════════════════════════
     @Override
     public DocumentBuilder addMainInfo() {
-        try {
-            PdfPTable mainTable = new PdfPTable(2);
-            mainTable.setWidthPercentage(100);
-            mainTable.setWidths(new float[]{1f, 1f});
-            mainTable.setSpacingBefore(10);
-            mainTable.setSpacingAfter(20);
+        Customer c = order.getCustomer();
 
-            // === CLIENT (Facturer à) ===
-            PdfPCell clientCell = createStyledBox("FACTURER À", PRIMARY_COLOR);
+        // FIX #2 — && en Java est correct dans le code Java.
+        // En revanche dans les *strings HTML* : ne jamais écrire & seul → &amp;
+        // La méthode esc() s'en charge pour les données dynamiques.
+        html.append("<table class=\"info-grid\"><tr>")
+                .append("<td class=\"info-box info-box--navy\">")
+                .append("<div class=\"info-box__title\">FACTURER &#192;</div>")
+                .append("<div class=\"info-box__name\">")
+                .append(c != null ? esc(c.getFullName()) : "&#8212;")
+                .append("</div>")
+                .append("<div class=\"info-box__body\">");
 
-            Customer customer = order.getCustomer();
-            if (customer != null) {
-                Font nameFont = new Font(Font.FontFamily.HELVETICA, 12, Font.BOLD, TEXT_DARK);
-                Font infoFont = new Font(Font.FontFamily.HELVETICA, 10, Font.NORMAL, TEXT_DARK);
-
-                Paragraph clientInfo = new Paragraph();
-                clientInfo.setLeading(14);
-                clientInfo.add(new Chunk(customer.getFullName() + "\n", nameFont));
-
-                if (customer.getLastName() != null && !customer.getFirstName().isEmpty()) {
-                    clientInfo.add(new Chunk(customer.getFullName() + "\n",
-                            new Font(Font.FontFamily.HELVETICA, 10, Font.ITALIC, TEXT_LIGHT)));
-                }
-
-                if (customer.getAddress() != null) {
-                    clientInfo.add(new Chunk(customer.getAddress() + "\n", infoFont));
-                }
-
-                clientInfo.add(new Chunk("📞 " + (customer.getPhone() != null ? customer.getPhone() : "N/A") + "\n", infoFont));
-
-                if (customer.getEmail() != null) {
-                    clientInfo.add(new Chunk("✉ " + customer.getEmail() + "\n", infoFont));
-                }
-
-                clientCell.addElement(clientInfo);
-            }
-
-            mainTable.addCell(clientCell);
-
-            // === LIVRAISON / EXPÉDITION ===
-            PdfPCell shippingCell = createStyledBox("LIVRAISON / EXPÉDITION", SECONDARY_COLOR);
-
-            Font infoFont = new Font(Font.FontFamily.HELVETICA, 10, Font.NORMAL, TEXT_DARK);
-            Paragraph shippingInfo = new Paragraph();
-            shippingInfo.setLeading(14);
-            shippingInfo.add(new Chunk("📦 Mode: " + getShippingMethod() + "\n", infoFont));
-            shippingInfo.add(new Chunk("🏪 Magasin: " +
-                    (order.getStore() != null ? order.getStore().getName() : "N/A") + "\n", infoFont));
-            shippingInfo.add(new Chunk("👤 Vendeur: " +
-                    (order.getCashier() != null ? order.getCashier().getFullName() : "N/A") + "\n", infoFont));
-            shippingInfo.add(new Chunk("📅 Commande: " +
-                    order.getCreatedAt().format(DATETIME_FORMATTER), infoFont));
-
-            shippingCell.addElement(shippingInfo);
-            mainTable.addCell(shippingCell);
-
-            document.add(mainTable);
-
-            log.debug("Infos principales facture ajoutées");
-
-        } catch (DocumentException e) {
-            log.error("Erreur infos facture", e);
-            throw new RuntimeException(e);
+        if (c != null && c.getAddress() != null) {
+            html.append(esc(c.getAddress())).append("<br/>");
         }
+        html.append("T&#233;l: ").append(c != null ? nvl(c.getPhone()) : "&#8212;").append("<br/>");
+        if (c != null && c.getEmail() != null) {
+            html.append(esc(c.getEmail()));
+        }
+
+        html.append("</div>")
+                .append("</td>")
+                .append("<td class=\"info-box info-box--blue\">")
+                .append("<div class=\"info-box__title\">POINT DE VENTE</div>")
+                .append("<div class=\"info-box__body\">")
+                .append("<b>Magasin:</b> ")
+                .append(order.getStore() != null ? esc(order.getStore().getName()) : "&#8212;")
+                .append("<br/><b>Vendeur:</b> ")
+                .append(order.getCashier() != null ? esc(order.getCashier().getFullName()) : "&#8212;")
+                .append("<br/><b>Date:</b> ").append(order.getCreatedAt().format(FMT_DT))
+                .append("<br/><b>Livraison:</b> Retrait en magasin")
+                .append("</div>")
+                .append("</td>")
+                .append("</tr></table>");
+
         return this;
     }
 
+    // ════════════════════════════════════════════════════════════════════════════
+    // ITEMS TABLE
+    // ════════════════════════════════════════════════════════════════════════════
     @Override
     public DocumentBuilder addItemsTable() {
-        try {
-            // Titre section
-            Font sectionFont = new Font(Font.FontFamily.HELVETICA, 14, Font.BOLD, PRIMARY_COLOR);
-            Paragraph sectionTitle = new Paragraph("DÉTAIL DES ARTICLES", sectionFont);
-            sectionTitle.setSpacingAfter(10);
-            document.add(sectionTitle);
+        html.append("<div class=\"section-title\">D&#201;TAIL DES ARTICLES</div>")
+                .append("<table class=\"items-table\">")
+                .append("<thead><tr>")
+                .append("<th class=\"col-num\">N&#176;</th>")
+                .append("<th class=\"col-desc\">D&#201;SIGNATION</th>")
+                .append("<th class=\"col-qty\">QT&#201;</th>")
+                .append("<th class=\"col-pu\">P.U. HT</th>")
+                .append("<th class=\"col-disc\">REMISE</th>")
+                .append("<th class=\"col-total\">TOTAL TTC</th>")
+                .append("</tr></thead><tbody>");
 
-            // Tableau des articles
-            PdfPTable table = new PdfPTable(6);
-            table.setWidthPercentage(100);
-            table.setWidths(new float[]{0.5f, 3.5f, 1f, 1.5f, 1.5f, 1.5f});
-            table.setSpacingBefore(5);
-            table.setSpacingAfter(15);
+        int i = 1;
+        for (OrderItem item : order.getItems()) {
+            String rowClass = (i % 2 == 0) ? "row-alt" : "";
+            String name     = item.getProduct() != null ? esc(item.getProduct().getName()) : "Article";
 
-            // En-têtes avec style
-            String[] headers = {"N°", "DESCRIPTION", "QTÉ", "P.U. HT", "REMISE", "TOTAL TTC"};
-            Font headerFont = new Font(Font.FontFamily.HELVETICA, 9, Font.BOLD, WHITE);
-
-            for (String header : headers) {
-                PdfPCell cell = new PdfPCell(new Phrase(header, headerFont));
-                cell.setBackgroundColor(PRIMARY_COLOR);
-                cell.setHorizontalAlignment(Element.ALIGN_CENTER);
-                cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-                cell.setPadding(8);
-                cell.setBorder(Rectangle.NO_BORDER);
-                table.addCell(cell);
+            // SKU et notes dans des blocs séparés — esc() obligatoire
+            String sku = "";
+            if (item.getProduct() != null && item.getProduct().getSku() != null) {
+                sku = "<span class=\"sku\">R&#233;f: " + esc(item.getProduct().getSku()) + "</span>";
+            }
+            String note = "";
+            if (item.getNotes() != null && !item.getNotes().isEmpty()) {
+                note = "<span class=\"note\">&#8594; " + esc(item.getNotes()) + "</span>";
             }
 
-            // Lignes articles
-            int index = 1;
-            boolean alternate = false;
-
-            for (OrderItem item : order.getItems()) {
-                BaseColor rowColor = alternate ? BG_LIGHT : WHITE;
-                Font cellFont = new Font(Font.FontFamily.HELVETICA, 9, Font.NORMAL, TEXT_DARK);
-                Font descFont = new Font(Font.FontFamily.HELVETICA, 9, Font.NORMAL, TEXT_DARK);
-
-                // N°
-                table.addCell(createCell(String.valueOf(index++), cellFont,
-                        Element.ALIGN_CENTER, rowColor));
-
-                // Description détaillée
-                StringBuilder desc = new StringBuilder();
-                desc.append(item.getProduct() != null ? item.getProduct().getName() : "Article");
-                if (item.getProduct() != null && item.getProduct().getSku() != null) {
-                    desc.append("\nRéf: ").append(item.getProduct().getSku());
-                }
-                if (item.getNotes() != null && !item.getNotes().isEmpty()) {
-                    desc.append("\nNote: ").append(item.getNotes());
-                }
-
-                PdfPCell descCell = createCell(desc.toString(), descFont,
-                        Element.ALIGN_LEFT, rowColor);
-                descCell.setLeading(12, 12);
-                table.addCell(descCell);
-
-                // Qté
-                table.addCell(createCell(String.valueOf(item.getQuantity()), cellFont,
-                        Element.ALIGN_CENTER, rowColor));
-
-                // Prix unitaire HT
-                BigDecimal unitPriceHT = calculateHT(item.getUnitPrice());
-                table.addCell(createCell(formatCurrency(unitPriceHT), cellFont,
-                        Element.ALIGN_RIGHT, rowColor));
-
-                // Remise
-                String discountStr = "-";
-                table.addCell(createCell(discountStr, cellFont, Element.ALIGN_CENTER, rowColor));
-
-                // Total TTC ligne
-                table.addCell(createCell(formatCurrency(item.getFinalPrice()),
-                        new Font(Font.FontFamily.HELVETICA, 9, Font.BOLD, TEXT_DARK),
-                        Element.ALIGN_RIGHT, rowColor));
-
-                alternate = !alternate;
-            }
-
-            document.add(table);
-
-            // Résumé quantités
-            Font summaryFont = new Font(Font.FontFamily.HELVETICA, 9, Font.ITALIC, TEXT_LIGHT);
-            Paragraph summary = new Paragraph(
-                    String.format("Total articles: %d | Total quantités: %d",
-                            order.getItems().size(),
-                            order.getItems().stream().mapToInt(OrderItem::getQuantity).sum()),
-                    summaryFont);
-            summary.setAlignment(Element.ALIGN_RIGHT);
-            summary.setSpacingAfter(10);
-            document.add(summary);
-
-            log.debug("Tableau articles facture ajouté");
-
-        } catch (DocumentException e) {
-            log.error("Erreur tableau articles", e);
-            throw new RuntimeException(e);
+            html.append("<tr class=\"").append(rowClass).append("\">")
+                    .append("<td class=\"center\">").append(i).append("</td>")
+                    .append("<td>").append(name).append(sku).append(note).append("</td>")
+                    .append("<td class=\"center\">").append(item.getQuantity()).append("</td>")
+                    .append("<td class=\"right\">").append(fmtCur(calcHT(item.getUnitPrice()))).append("</td>")
+                    .append("<td class=\"center muted\">&#8212;</td>")
+                    .append("<td class=\"right bold\">").append(fmtCur(item.getFinalPrice())).append("</td>")
+                    .append("</tr>");
+            i++;
         }
+
+        int totalQty = order.getItems().stream().mapToInt(OrderItem::getQuantity).sum();
+        html.append("</tbody></table>")
+                .append("<div class=\"items-summary\">")
+                .append(order.getItems().size()).append(" article(s) &#160;&#183;&#160; ")
+                .append(totalQty).append(" unit&#233;(s)")
+                .append("</div>");
+
         return this;
     }
 
+    // ════════════════════════════════════════════════════════════════════════════
+    // TOTALS
+    // ════════════════════════════════════════════════════════════════════════════
     @Override
     public DocumentBuilder addTotals() {
-        try {
-            PdfPTable mainTable = new PdfPTable(2);
-            mainTable.setWidthPercentage(100);
-            mainTable.setWidths(new float[]{1.5f, 1f});
-            mainTable.getDefaultCell().setBorder(Rectangle.NO_BORDER);
+        BigDecimal taux = order.getTaxRate() != null ? order.getTaxRate() : new BigDecimal("18.00");
 
-            // === COLONNE GAUCHE: Récapitulatif TVA et paiements ===
-            PdfPCell leftCell = new PdfPCell();
-            leftCell.setBorder(Rectangle.NO_BORDER);
+        List<Payment> paidList = order.getPayments().stream()
+                .filter(p -> p.getStatus() == PaymentStatus.PAID)
+                .collect(Collectors.toList());
+        BigDecimal totalPaid = paidList.stream()
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal remaining = order.getTotalAmount().subtract(totalPaid);
 
-            // Tableau détail TVA
-            Font sectionFont = new Font(Font.FontFamily.HELVETICA, 11, Font.BOLD, TEXT_DARK);
-            Paragraph tvaTitle = new Paragraph("DÉTAIL DE LA TVA", sectionFont);
-            tvaTitle.setSpacingAfter(8);
-            leftCell.addElement(tvaTitle);
+        html.append("<table class=\"totals-grid\"><tr>")
 
-            PdfPTable tvaTable = new PdfPTable(3);
-            tvaTable.setWidthPercentage(80);
-            tvaTable.setWidths(new float[]{1f, 1f, 1f});
+                .append("<td class=\"totals-left\">")
+                .append("<div class=\"sub-title\">D&#201;TAIL TVA</div>")
+                .append("<table class=\"tva-table\">")
+                .append("<thead><tr><th>BASE HT</th><th>TAUX</th><th>TVA</th></tr></thead>")
+                .append("<tbody><tr>")
+                .append("<td class=\"right\">").append(fmtCur(order.getSubtotal())).append("</td>")
+                .append("<td class=\"center\">").append(taux).append("%</td>")
+                .append("<td class=\"right\">").append(fmtCur(order.getTaxAmount())).append("</td>")
+                .append("</tr></tbody></table>")
 
-            addTvaHeader(tvaTable, "Base HT", "Taux", "Montant TVA");
+                .append("<div class=\"sub-title\" style=\"margin-top:8px\">R&#200;GLEMENT PAR VIREMENT</div>")
+                .append("<div class=\"bank-info\">")
+                .append("<b>").append(esc(companyBankName)).append("</b><br/>")
+                .append("IBAN: ").append(esc(companyBankAccount)).append("<br/>")
+                .append("B&#233;n&#233;ficiaire: <b>").append(esc(companyName)).append("</b>")
+                .append("</div>")
 
-            // Ligne TVA normale
-            BigDecimal tauxTVA = order.getTaxRate() != null ? order.getTaxRate() : new BigDecimal("18.00");
-            addTvaRow(tvaTable, order.getSubtotal(), tauxTVA + "%", order.getTaxAmount());
+                .append("<div class=\"payment-methods\">")
+                .append("Carte &#183; Mobile Money &#183; Virement &#183; Esp&#232;ces")
+                .append("</div>")
+                .append("</td>")
 
-            // ✅ CORRECTION: Add the table directly to leftCell, not wrapped in a PdfPCell
-            leftCell.addElement(tvaTable);
+                .append("<td class=\"totals-right\">")
+                .append("<table class=\"amounts-table\">");
 
-            // Add spacing after TVA table
-            leftCell.addElement(new Paragraph(" "));
+        html.append(amtRow("Sous-total HT", fmtCur(order.getSubtotal()), ""));
 
-            // Informations bancaires
-            Paragraph bankTitle = new Paragraph("COORDONNÉES BANCAIRES", sectionFont);
-            bankTitle.setSpacingBefore(15);
-            bankTitle.setSpacingAfter(8);
-            leftCell.addElement(bankTitle);
-
-            Font bankFont = new Font(Font.FontFamily.HELVETICA, 9, Font.NORMAL, TEXT_DARK);
-            Paragraph bankInfo = new Paragraph();
-            bankInfo.setLeading(12);
-            bankInfo.add(new Chunk("🏦 " + companyBankName + "\n", bankFont));
-            bankInfo.add(new Chunk(companyBankAccount + "\n", bankFont));
-            bankInfo.add(new Chunk("Bénéficiaire: " + companyName,
-                    new Font(Font.FontFamily.HELVETICA, 9, Font.BOLD, TEXT_DARK)));
-            leftCell.addElement(bankInfo);
-
-            // Méthodes de paiement acceptées
-            Paragraph methodsTitle = new Paragraph("PAIEMENT ACCEPTÉ", sectionFont);
-            methodsTitle.setSpacingBefore(10);
-            methodsTitle.setSpacingAfter(5);
-            leftCell.addElement(methodsTitle);
-
-            Paragraph methods = new Paragraph("💳 Carte bancaire  |  📱 Mobile Money  |  🏦 Virement  |  💵 Espèces",
-                    new Font(Font.FontFamily.HELVETICA, 8, Font.NORMAL, TEXT_LIGHT));
-            leftCell.addElement(methods);
-
-            mainTable.addCell(leftCell);
-
-            // === COLONNE DROITE: Totaux ===
-            PdfPCell rightCell = new PdfPCell();
-            rightCell.setBorder(Rectangle.NO_BORDER);
-            rightCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-
-            PdfPTable totalsTable = new PdfPTable(2);
-            totalsTable.setWidthPercentage(100);
-            totalsTable.setHorizontalAlignment(Element.ALIGN_RIGHT);
-            totalsTable.getDefaultCell().setBorder(Rectangle.NO_BORDER);
-
-            Font labelFont = new Font(Font.FontFamily.HELVETICA, 10, Font.NORMAL, TEXT_LIGHT);
-            Font valueFont = new Font(Font.FontFamily.HELVETICA, 10, Font.NORMAL, TEXT_DARK);
-
-            // Sous-total HT
-            addTotalRow(totalsTable, "Total HT:", formatCurrency(order.getSubtotal()), labelFont, valueFont);
-
-            // Remises
-            if (order.getDiscountAmount() != null && order.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
-                addTotalRow(totalsTable, "Remise commerciale:",
-                        "-" + formatCurrency(order.getDiscountAmount()),
-                        labelFont, new Font(Font.FontFamily.HELVETICA, 10, Font.BOLD, ACCENT_COLOR));
-            }
-
-            // TVA
-            if (order.getTaxAmount() != null && order.getTaxAmount().compareTo(BigDecimal.ZERO) > 0) {
-                String tvaLabel = String.format("TVA (%s%%):",
-                        order.getTaxRate() != null ? order.getTaxRate().toString() : "18");
-                addTotalRow(totalsTable, tvaLabel, formatCurrency(order.getTaxAmount()), labelFont, valueFont);
-            }
-
-            // Ligne de séparation propre
-            PdfPCell separatorCell = new PdfPCell();
-            separatorCell.setColspan(2);
-            separatorCell.setBorder(Rectangle.TOP);
-            separatorCell.setBorderWidth(2);
-            separatorCell.setBorderColor(PRIMARY_COLOR);
-            separatorCell.setPadding(5);
-            totalsTable.addCell(separatorCell);
-
-            // TOTAL TTC (en grand)
-            Font totalLabelFont = new Font(Font.FontFamily.HELVETICA, 14, Font.BOLD, PRIMARY_COLOR);
-            Font totalValueFont = new Font(Font.FontFamily.HELVETICA, 16, Font.BOLD, PRIMARY_COLOR);
-
-            PdfPCell totalLabel = new PdfPCell(new Phrase("TOTAL TTC", totalLabelFont));
-            totalLabel.setBorder(Rectangle.NO_BORDER);
-            totalLabel.setPadding(8);
-            totalsTable.addCell(totalLabel);
-
-            PdfPCell totalValue = new PdfPCell(new Phrase(formatCurrency(order.getTotalAmount()), totalValueFont));
-            totalValue.setBorder(Rectangle.NO_BORDER);
-            totalValue.setHorizontalAlignment(Element.ALIGN_RIGHT);
-            totalValue.setPadding(8);
-            totalsTable.addCell(totalValue);
-
-            // Montant en lettres
-            PdfPCell wordsCell = new PdfPCell(new Phrase(
-                    "Arrêté la présente facture à la somme de:\n" +
-                            amountInWords(order.getTotalAmount()) + " FCFA",
-                    new Font(Font.FontFamily.HELVETICA, 9, Font.ITALIC, TEXT_LIGHT)));
-            wordsCell.setColspan(2);
-            wordsCell.setBorder(Rectangle.NO_BORDER);
-            wordsCell.setPadding(5);
-            totalsTable.addCell(wordsCell);
-
-            // État du paiement
-            List<Payment> validPayments = order.getPayments().stream()
-                    .filter(p -> p.getStatus() == PaymentStatus.PAID)
-                    .collect(Collectors.toList());
-
-            BigDecimal totalPaid = validPayments.stream()
-                    .map(Payment::getAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            if (totalPaid.compareTo(BigDecimal.ZERO) > 0) {
-                addTotalRow(totalsTable, "Déjà payé:", formatCurrency(totalPaid),
-                        labelFont, new Font(Font.FontFamily.HELVETICA, 10, Font.BOLD, SUCCESS_COLOR));
-
-                BigDecimal remaining = order.getTotalAmount().subtract(totalPaid);
-                if (remaining.compareTo(BigDecimal.ZERO) > 0) {
-                    addTotalRow(totalsTable, "Reste à payer:", formatCurrency(remaining),
-                            labelFont, new Font(Font.FontFamily.HELVETICA, 12, Font.BOLD, ACCENT_COLOR));
-                } else if (remaining.compareTo(BigDecimal.ZERO) < 0) {
-                    addTotalRow(totalsTable, "Monnaie rendue:", formatCurrency(remaining.abs()),
-                            labelFont, new Font(Font.FontFamily.HELVETICA, 10, Font.BOLD, SUCCESS_COLOR));
-                } else {
-                    PdfPCell paidCell = new PdfPCell(new Phrase("✓ PAYÉ EN TOTALITÉ",
-                            new Font(Font.FontFamily.HELVETICA, 12, Font.BOLD, SUCCESS_COLOR)));
-                    paidCell.setColspan(2);
-                    paidCell.setBorder(Rectangle.NO_BORDER);
-                    paidCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-                    paidCell.setPadding(5);
-                    totalsTable.addCell(paidCell);
-                }
-            } else {
-                PdfPCell unpaidCell = new PdfPCell(new Phrase("⚠ NON PAYÉ",
-                        new Font(Font.FontFamily.HELVETICA, 11, Font.BOLD, ACCENT_COLOR)));
-                unpaidCell.setColspan(2);
-                unpaidCell.setBorder(Rectangle.NO_BORDER);
-                unpaidCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-                unpaidCell.setPadding(5);
-                totalsTable.addCell(unpaidCell);
-            }
-
-            rightCell.addElement(totalsTable);
-            mainTable.addCell(rightCell);
-
-            document.add(mainTable);
-
-            log.debug("Totaux facture ajoutés");
-
-        } catch (DocumentException e) {
-            log.error("Erreur totaux facture", e);
-            throw new RuntimeException(e);
+        if (order.getDiscountAmount() != null && order.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
+            html.append(amtRow("Remise", "-" + fmtCur(order.getDiscountAmount()), "color-red"));
         }
+        if (order.getTaxAmount() != null && order.getTaxAmount().compareTo(BigDecimal.ZERO) > 0) {
+            html.append(amtRow("TVA (" + taux + "%)", fmtCur(order.getTaxAmount()), ""));
+        }
+
+        html.append("<tr class=\"total-ttc-row\">")
+                .append("<td>TOTAL TTC</td>")
+                .append("<td class=\"right\">").append(fmtCur(order.getTotalAmount())).append("</td>")
+                .append("</tr>")
+                .append("<tr><td colspan=\"2\" class=\"amount-words\">")
+                .append("Arr&#234;t&#233; &#224; : ").append(fmtCur(order.getTotalAmount()))
+                .append("</td></tr>");
+
+        if (totalPaid.compareTo(BigDecimal.ZERO) > 0) {
+            html.append(amtRow("D&#233;j&#224; pay&#233;", fmtCur(totalPaid), "color-green"));
+            if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+                html.append(amtRow("Reste &#224; payer", fmtCur(remaining), "color-red bold-val"));
+            } else if (remaining.compareTo(BigDecimal.ZERO) < 0) {
+                html.append(amtRow("Monnaie rendue", fmtCur(remaining.abs()), "color-green"));
+            } else {
+                html.append("<tr><td colspan=\"2\">")
+                        .append("<div class=\"status-badge status-paid\">&#10003; PAY&#201; EN TOTALIT&#201;</div>")
+                        .append("</td></tr>");
+            }
+        } else {
+            html.append("<tr><td colspan=\"2\">")
+                    .append("<div class=\"status-badge status-unpaid\">&#9888; NON PAY&#201;</div>")
+                    .append("</td></tr>");
+        }
+
+        html.append("</table></td></tr></table>");
         return this;
     }
 
+    // ════════════════════════════════════════════════════════════════════════════
+    // FOOTER
+    // ════════════════════════════════════════════════════════════════════════════
     @Override
     public DocumentBuilder addFooter() {
-        try {
-            // Ligne de séparation
-            addDecorativeLine();
+        html.append("<div class=\"footer-divider\"></div>")
+                .append("<table class=\"footer-grid\"><tr>")
 
-            // Tableau conditions et signature
-            PdfPTable footerTable = new PdfPTable(2);
-            footerTable.setWidthPercentage(100);
-            footerTable.setWidths(new float[]{1.5f, 1f});
-            footerTable.setSpacingBefore(10);
+                .append("<td class=\"footer-col\">")
+                .append("<div class=\"sub-title\">CONDITIONS G&#201;N&#201;RALES DE VENTE</div>")
+                .append("<div class=\"footer-text\">")
+                .append("Paiement comptant &#224; r&#233;ception.<br/>")
+                .append("Escompte 2% pour paiement anticip&#233; sous 8 jours.<br/>")
+                .append("P&#233;nalit&#233;s de retard: 3x le taux l&#233;gal.<br/>")
+                .append("R&#233;serve de propri&#233;t&#233; jusqu'au paiement int&#233;gral.<br/>")
+                .append("Tribunal comp&#233;tent: Commerce de Pointe-Noire.")
+                .append("</div>")
+                .append("</td>")
 
-            // Conditions de vente
-            PdfPCell termsCell = new PdfPCell();
-            termsCell.setBorder(Rectangle.NO_BORDER);
+                .append("<td class=\"footer-col signature-col\">")
+                .append("<div class=\"sub-title\">POUR ").append(esc(companyName.toUpperCase())).append("</div>")
+                .append("<div class=\"signature-box\">Signature et cachet</div>")
+                .append("</td>")
 
-            Font termsTitleFont = new Font(Font.FontFamily.HELVETICA, 10, Font.BOLD, TEXT_DARK);
-            Font termsFont = new Font(Font.FontFamily.HELVETICA, 8, Font.NORMAL, TEXT_LIGHT);
+                .append("<td class=\"footer-col footer-legal\">")
+                .append("Document g&#233;n&#233;r&#233; &#233;lectroniquement<br/>")
+                .append("Valide sans signature manuscrite<br/>")
+                .append("RCCM: Pointe-Noire<br/>")
+                .append("&#169; ").append(java.time.Year.now()).append(" ").append(esc(companyName))
+                .append("</td>")
 
-            Paragraph terms = new Paragraph();
-            terms.add(new Chunk("CONDITIONS GÉNÉRALES DE VENTE\n", termsTitleFont));
-            terms.add(new Chunk(
-                    "• Paiement comptant à réception de la facture\n" +
-                            "• Escompte 2% pour paiement anticipé sous 8 jours\n" +
-                            "• Pénalités de retard: 3 fois le taux d'intérêt légal\n" +
-                            "• Retention de titre: marchandises livrées restent notre propriété jusqu'au paiement intégral\n" +
-                            "• Tribunal compétent: Commerce de Pointe-Noire\n" +
-                            "• Conforme à la loi OHADA sur la sécurité des transactions électroniques",
-                    termsFont));
-            termsCell.addElement(terms);
-            footerTable.addCell(termsCell);
+                .append("</tr></table>")
+                .append("<div class=\"footer-banner\">")
+                .append("Merci pour votre confiance &#8212; ").append(esc(companyWebsite))
+                .append("</div>")
+                .append("</body></html>");
 
-            // Zone signature
-            PdfPCell signCell = getPdfPCell();
-
-            footerTable.addCell(signCell);
-            document.add(footerTable);
-
-            // Remerciement stylisé
-            document.add(Chunk.NEWLINE);
-            Paragraph thanks = new Paragraph("Merci pour votre confiance et votre fidélité !",
-                    new Font(Font.FontFamily.HELVETICA, 12, Font.ITALIC, PRIMARY_COLOR));
-            thanks.setAlignment(Element.ALIGN_CENTER);
-            document.add(thanks);
-
-            // QR Code et infos légales bottom
-            PdfPTable bottomTable = new PdfPTable(2);
-            bottomTable.setWidthPercentage(100);
-            bottomTable.setSpacingBefore(15);
-
-            PdfPCell qrCell = new PdfPCell();
-            qrCell.setBorder(Rectangle.NO_BORDER);
-            // TODO: Ajouter QR code ici si besoin
-            Paragraph qrText = new Paragraph("[QR Code de vérification]",
-                    new Font(Font.FontFamily.HELVETICA, 8, Font.ITALIC, TEXT_LIGHT));
-            qrCell.addElement(qrText);
-            bottomTable.addCell(qrCell);
-
-            PdfPCell legalCell = new PdfPCell();
-            legalCell.setBorder(Rectangle.NO_BORDER);
-            legalCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-
-            Font tinyFont = new Font(Font.FontFamily.HELVETICA, 7, Font.NORMAL, TEXT_LIGHT);
-            Paragraph legal = new Paragraph();
-            legal.setAlignment(Element.ALIGN_RIGHT);
-            legal.add(new Chunk("Document généré électroniquement - Valide sans signature\n", tinyFont));
-            legal.add(new Chunk("Société enregistrée au RCCM de Pointe-Noire\n", tinyFont));
-            legal.add(new Chunk("© " + java.time.Year.now() + " " + companyName + " - Tous droits réservés", tinyFont));
-            legalCell.addElement(legal);
-            bottomTable.addCell(legalCell);
-
-            document.add(bottomTable);
-
-            log.debug("Pied de page facture ajouté");
-
-        } catch (DocumentException e) {
-            log.error("Erreur footer facture", e);
-            throw new RuntimeException(e);
-        }
         return this;
     }
 
-    private @NonNull PdfPCell getPdfPCell() {
-        PdfPCell signCell = new PdfPCell();
-        signCell.setBorder(Rectangle.NO_BORDER);
-        signCell.setHorizontalAlignment(Element.ALIGN_CENTER);
-
-        Paragraph signTitle = new Paragraph("POUR " + companyName.toUpperCase(),
-                new Font(Font.FontFamily.HELVETICA, 9, Font.BOLD, TEXT_DARK));
-        signTitle.setAlignment(Element.ALIGN_CENTER);
-        signTitle.setSpacingAfter(30);
-        signCell.addElement(signTitle);
-
-        Paragraph signature = new Paragraph("Signature et cachet",
-                new Font(Font.FontFamily.HELVETICA, 8, Font.ITALIC, TEXT_LIGHT));
-        signature.setAlignment(Element.ALIGN_CENTER);
-        signCell.addElement(signature);
-        return signCell;
+    // ════════════════════════════════════════════════════════════════════════════
+    // BUILD
+    // ════════════════════════════════════════════════════════════════════════════
+    @Override
+    public byte[] build() {
+        try {
+            String finalHtml = html.toString();
+            ByteArrayOutputStream baos = (ByteArrayOutputStream) this.outputStream;
+            PdfRendererBuilder builder = new PdfRendererBuilder();
+            builder.withHtmlContent(finalHtml, null);
+            builder.toStream(baos);
+            builder.run();
+            log.info("Facture PDF générée ({} octets)", baos.size());
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.error("Erreur génération PDF: {}", e.getMessage());
+            throw new RuntimeException("Échec génération facture PDF", e);
+        }
     }
 
-    // ==================== MÉTHODES UTILITAIRES ====================
+    // ════════════════════════════════════════════════════════════════════════════
+    // CSS — concaténation de strings Java (pas de text block pour éviter
+    //        tout risque de caractère spécial non échappé dans le CSS)
+    // ════════════════════════════════════════════════════════════════════════════
+    private String buildCss() {
+        return
+                "@page { size: A4; margin: 12mm 12mm 10mm 12mm; }" +
+                        "* { box-sizing: border-box; margin: 0; padding: 0; }" +
+                        "body { font-family: Helvetica, Arial, sans-serif; font-size: 8pt; color: #1e2632; line-height: 1.35; }" +
+                        ".invoice-header { width: 100%; border-collapse: collapse; margin-bottom: 6pt; }" +
+                        ".header-left { background: #15294d; width: 60%; padding: 10pt 12pt; vertical-align: middle; }" +
+                        ".header-right { background: #1e5aa0; width: 40%; padding: 10pt 12pt; vertical-align: middle; }" +
+                        ".company-name { font-size: 16pt; font-weight: bold; color: #ffffff; letter-spacing: 1px; margin-bottom: 2pt; }" +
+                        ".company-sub { font-size: 7pt; color: #b4c8e1; margin-bottom: 4pt; }" +
+                        ".company-contacts { font-size: 7pt; color: #8aadd4; line-height: 1.5; }" +
+                        ".logo-img { max-height: 36pt; margin-bottom: 5pt; display: block; }" +
+                        ".invoice-badge { font-size: 22pt; font-weight: bold; color: #ffffff; text-align: right; letter-spacing: 2px; margin-bottom: 6pt; }" +
+                        ".meta-table { width: 100%; border-collapse: collapse; }" +
+                        ".meta-table td { font-size: 7.5pt; padding: 1.5pt 0; color: #ffffff; }" +
+                        ".meta-table td.lbl { color: #b4c8e1; padding-right: 8pt; }" +
+                        ".meta-table td.val { text-align: right; font-weight: bold; }" +
+                        ".info-grid { width: 100%; border-collapse: collapse; margin: 7pt 0; }" +
+                        ".info-box { width: 50%; padding: 6pt 8pt; vertical-align: top; border-left: 2.5pt solid #15294d; background: #f8fafd; }" +
+                        ".info-box--blue { border-left-color: #1e5aa0; }" +
+                        ".info-box__title { font-size: 7pt; font-weight: bold; color: #15294d; margin-bottom: 3pt; }" +
+                        ".info-box--blue .info-box__title { color: #1e5aa0; }" +
+                        ".info-box__name { font-weight: bold; font-size: 8.5pt; margin-bottom: 2pt; }" +
+                        ".info-box__body { font-size: 7.5pt; color: #3d4a58; line-height: 1.5; }" +
+                        ".section-title { font-size: 8pt; font-weight: bold; color: #15294d; margin: 6pt 0 3pt; border-bottom: 1pt solid #c8d4e6; padding-bottom: 2pt; }" +
+                        ".items-table { width: 100%; border-collapse: collapse; font-size: 7.5pt; }" +
+                        ".items-table thead tr { background: #15294d; color: #ffffff; }" +
+                        ".items-table thead th { padding: 5pt 6pt; font-weight: bold; font-size: 7pt; }" +
+                        ".col-num { width: 4%; text-align: center; }" +
+                        ".col-desc { width: 38%; text-align: left; }" +
+                        ".col-qty { width: 7%; text-align: center; }" +
+                        ".col-pu { width: 14%; text-align: right; }" +
+                        ".col-disc { width: 10%; text-align: center; }" +
+                        ".col-total { width: 14%; text-align: right; }" +
+                        ".items-table tbody td { padding: 4pt 6pt; vertical-align: top; border-bottom: 0.5pt solid #e8eef6; }" +
+                        ".row-alt { background: #f0f4fa; }" +
+                        ".sku { display: block; font-size: 6.5pt; color: #7a8898; margin-top: 1pt; }" +
+                        ".note { display: block; font-size: 6.5pt; color: #1e5aa0; font-style: italic; }" +
+                        ".items-summary { text-align: right; font-size: 7pt; color: #7a8898; font-style: italic; margin: 3pt 0 6pt; }" +
+                        ".totals-grid { width: 100%; border-collapse: collapse; margin-top: 4pt; }" +
+                        ".totals-left { width: 58%; vertical-align: top; padding-right: 10pt; }" +
+                        ".totals-right { width: 42%; vertical-align: top; }" +
+                        ".sub-title { font-size: 7pt; font-weight: bold; color: #15294d; margin-bottom: 3pt; }" +
+                        ".tva-table { width: 85%; border-collapse: collapse; font-size: 7pt; margin-bottom: 6pt; }" +
+                        ".tva-table thead th { background: #1e5aa0; color: #fff; padding: 3pt 5pt; font-weight: bold; }" +
+                        ".tva-table tbody td { padding: 3pt 5pt; border-bottom: 0.5pt solid #e0e8f0; background: #f8fafd; }" +
+                        ".bank-info { font-size: 7.5pt; color: #3d4a58; line-height: 1.6; background: #f0f4fa; padding: 4pt 6pt; border-left: 2pt solid #1e5aa0; margin-bottom: 6pt; }" +
+                        ".payment-methods { font-size: 7pt; color: #7a8898; font-style: italic; }" +
+                        ".amounts-table { width: 100%; border-collapse: collapse; font-size: 8pt; }" +
+                        ".amounts-table td { padding: 3pt 4pt; color: #5a6475; }" +
+                        ".amounts-table td + td { text-align: right; color: #1e2632; }" +
+                        ".total-ttc-row td { font-size: 12pt; font-weight: bold; color: #15294d; padding: 5pt 4pt; border-top: 1.5pt solid #15294d; border-bottom: 1.5pt solid #15294d; }" +
+                        ".amount-words { font-size: 6.5pt; color: #7a8898; font-style: italic; padding-bottom: 5pt; }" +
+                        ".status-badge { font-size: 8pt; font-weight: bold; padding: 3pt 8pt; }" +
+                        ".status-paid { color: #19854a; }" +
+                        ".status-unpaid { color: #b42323; }" +
+                        ".color-red { color: #b42323; font-weight: bold; }" +
+                        ".color-green { color: #19854a; font-weight: bold; }" +
+                        ".bold-val { font-weight: bold; }" +
+                        ".footer-divider { border-top: 0.5pt solid #c8d4e6; margin: 6pt 0; }" +
+                        ".footer-grid { width: 100%; border-collapse: collapse; }" +
+                        ".footer-col { width: 33%; vertical-align: top; padding-right: 8pt; font-size: 7pt; }" +
+                        ".footer-text { color: #7a8898; line-height: 1.6; margin-top: 3pt; }" +
+                        ".footer-legal { color: #9aa3ae; line-height: 1.7; text-align: right; padding-right: 0; }" +
+                        ".signature-col { text-align: center; }" +
+                        ".signature-box { border: 0.5pt solid #c8d4e6; height: 32pt; color: #aab4be; font-style: italic; font-size: 6.5pt; text-align: center; margin-top: 3pt; padding-top: 24pt; }" +
+                        ".footer-banner { background: #15294d; color: #ffffff; text-align: center; font-size: 7.5pt; font-style: italic; padding: 5pt; margin-top: 7pt; }" +
+                        ".center { text-align: center; }" +
+                        ".right { text-align: right; }" +
+                        ".muted { color: #9aa3ae; }" +
+                        ".bold { font-weight: bold; }";
+    }
 
-    private void addLogo(PdfPCell cell) {
+    // ════════════════════════════════════════════════════════════════════════════
+    // HELPERS
+    // ════════════════════════════════════════════════════════════════════════════
+
+    private String metaRow(String label, String value) {
+        return "<tr><td class=\"lbl\">" + label + "</td><td class=\"val\">" + value + "</td></tr>";
+    }
+
+    private String amtRow(String label, String value, String css) {
+        String valCss = "right" + (css.isEmpty() ? "" : " " + css);
+        return "<tr><td" + (css.isEmpty() ? "" : " class=\"" + css + "\"") + ">" + label + "</td>"
+                + "<td class=\"" + valCss + "\">" + value + "</td></tr>";
+    }
+
+    private String buildLogoTag() {
         try {
-            java.io.InputStream logoStream = getClass().getClassLoader()
-                    .getResourceAsStream(companyLogoPath);
-            if (logoStream != null) {
-                Image logo = Image.getInstance(logoStream.readAllBytes());
-                logo.scaleToFit(80, 60);
-                logo.setAlignment(Element.ALIGN_LEFT);
-                cell.addElement(logo);
-                cell.addElement(Chunk.NEWLINE);
+            InputStream is = getClass().getClassLoader().getResourceAsStream(companyLogoPath);
+            if (is != null) {
+                byte[] bytes = is.readAllBytes();
+                String b64  = Base64.getEncoder().encodeToString(bytes);
+                String mime = companyLogoPath.endsWith(".png") ? "image/png" : "image/jpeg";
+                return "<img class=\"logo-img\" src=\"data:" + mime + ";base64," + b64 + "\"/>";
             }
-        } catch (Exception e) {
+        } catch (IOException e) {
             log.debug("Logo non trouvé: {}", companyLogoPath);
         }
+        return "";
     }
 
-    private void addDecorativeLine() throws DocumentException {
-        LineSeparator sep = new LineSeparator();
-        sep.setLineColor(PRIMARY_COLOR);
-        sep.setLineWidth(2);
-        document.add(new Chunk(sep));
-        document.add(Chunk.NEWLINE);
-    }
-
-    private PdfPCell createStyledBox(String title, BaseColor color) {
-        PdfPCell cell = new PdfPCell();
-        cell.setBorder(Rectangle.BOX);
-        cell.setBorderColor(color);
-        cell.setBorderWidth(2);
-        cell.setPadding(10);
-        cell.setBackgroundColor(BG_LIGHT);
-
-        Font titleFont = new Font(Font.FontFamily.HELVETICA, 10, Font.BOLD, color);
-        Paragraph titlePara = new Paragraph(title, titleFont);
-        titlePara.setSpacingAfter(8);
-        cell.addElement(titlePara);
-
-        return cell;
-    }
-
-    private PdfPCell createCell(String text, Font font, int alignment, BaseColor bgColor) {
-        PdfPCell cell = new PdfPCell(new Phrase(text, font));
-        cell.setHorizontalAlignment(alignment);
-        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        cell.setBackgroundColor(bgColor);
-        cell.setPadding(6);
-        cell.setBorder(Rectangle.NO_BORDER);
-        return cell;
-    }
-
-    private void addInfoPair(PdfPTable table, String label, String value, Font labelFont, Font valueFont) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, labelFont));
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setPadding(3);
-        table.addCell(labelCell);
-
-        PdfPCell valueCell = new PdfPCell(new Phrase(value, valueFont));
-        valueCell.setBorder(Rectangle.NO_BORDER);
-        valueCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        valueCell.setPadding(3);
-        table.addCell(valueCell);
-    }
-
-    private void addTotalRow(PdfPTable table, String label, String value, Font labelFont, Font valueFont) {
-        PdfPCell labelCell = new PdfPCell(new Phrase(label, labelFont));
-        labelCell.setBorder(Rectangle.NO_BORDER);
-        labelCell.setPadding(5);
-        table.addCell(labelCell);
-
-        PdfPCell valueCell = new PdfPCell(new Phrase(value, valueFont));
-        valueCell.setBorder(Rectangle.NO_BORDER);
-        valueCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        valueCell.setPadding(5);
-        table.addCell(valueCell);
-    }
-
-    private void addTvaHeader(PdfPTable table, String... headers) {
-        Font font = new Font(Font.FontFamily.HELVETICA, 8, Font.BOLD, WHITE);
-        for (String header : headers) {
-            PdfPCell cell = new PdfPCell(new Phrase(header, font));
-            cell.setBackgroundColor(SECONDARY_COLOR);
-            cell.setHorizontalAlignment(Element.ALIGN_CENTER);
-            cell.setPadding(5);
-            cell.setBorder(Rectangle.NO_BORDER);
-            table.addCell(cell);
-        }
-    }
-
-    private void addTvaRow(PdfPTable table, BigDecimal base, String taux, BigDecimal montant) {
-        Font font = new Font(Font.FontFamily.HELVETICA, 9, Font.NORMAL, TEXT_DARK);
-        table.addCell(createCell(formatCurrency(base), font, Element.ALIGN_RIGHT, WHITE));
-        table.addCell(createCell(taux, font, Element.ALIGN_CENTER, WHITE));
-        table.addCell(createCell(formatCurrency(montant), font, Element.ALIGN_RIGHT, WHITE));
-    }
-
-    protected String formatCurrency(BigDecimal amount) {
+    protected String fmtCur(BigDecimal amount) {
         if (amount == null) return "0 FCFA";
-        return String.format("%,.2f FCFA", amount);
+        return String.format("%,.0f FCFA", amount);
     }
 
-    private BigDecimal calculateHT(BigDecimal ttc) {
+    private BigDecimal calcHT(BigDecimal ttc) {
         if (ttc == null) return BigDecimal.ZERO;
-        // Approximation: HT = TTC / 1.18 (pour 18% TVA)
         return ttc.divide(new BigDecimal("1.18"), 2, RoundingMode.HALF_UP);
     }
 
-    private LocalDateTime calculateDueDate() {
-        // Par défaut: 30 jours
-        return LocalDateTime.now().plusDays(30);
-    }
-
-    private String getShippingMethod() {
-        // À adapter selon votre logique
-        return "Retrait en magasin";
-    }
+    private String nvl(String s) { return s != null ? esc(s) : "&#8212;"; }
 
     /**
-     * Convertit un montant en lettres (simplifié pour FCFA)
+     * FIX CENTRAL — Échappe TOUTES les données dynamiques avant injection HTML.
+     * Règle absolue : appeler esc() sur TOUT ce qui vient de la base de données.
+     * Le & DOIT être remplacé en premier pour éviter le double-échappement.
      */
-    private String amountInWords(BigDecimal amount) {
-        // TODO: Implémenter conversion complète si nécessaire
-        // Pour l'instant, retourne le montant en chiffres avec indication
-        return String.format("%s (en chiffres)", formatCurrency(amount));
+    protected String esc(String s) {
+        if (s == null) return "";
+        return s.replace("&",  "&amp;")   // EN PREMIER obligatoirement
+                .replace("<",  "&lt;")
+                .replace(">",  "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'",  "&#39;");
     }
 
-    // Classe interne pour coins arrondis
-    private static class RoundRectangle implements PdfPCellEvent {
-        private final float radius;
-
-        RoundRectangle(float radius) {
-            this.radius = radius;
-        }
-
-        @Override
-        public void cellLayout(PdfPCell cell, Rectangle position, PdfContentByte[] canvases) {
-            PdfContentByte cb = canvases[PdfPTable.BACKGROUNDCANVAS];
-            cb.roundRectangle(
-                    position.getLeft() + 2,
-                    position.getBottom() + 2,
-                    position.getWidth() - 4,
-                    position.getHeight() - 4,
-                    radius
-            );
-            cb.stroke();
-        }
+    private String safeRef() {
+        String n = order.getOrderNumber();
+        return esc(n.length() > 4 ? n.substring(4) : n);
     }
 }

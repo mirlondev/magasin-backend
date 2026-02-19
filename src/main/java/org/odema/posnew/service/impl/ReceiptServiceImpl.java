@@ -4,8 +4,10 @@ import com.itextpdf.text.DocumentException;
 import lombok.extern.slf4j.Slf4j;
 
 import org.odema.posnew.design.builder.DocumentBuilder;
+import org.odema.posnew.design.builder.DocumentBuilderFactory;
 import org.odema.posnew.design.builder.impl.ReceiptDocumentBuilder;
 import org.odema.posnew.design.builder.impl.ShiftReceiptDocumentBuilder;
+import org.odema.posnew.design.context.DocumentBuildContext;
 import org.odema.posnew.design.event.ReceiptGeneratedEvent;
 import org.odema.posnew.design.factory.DocumentStrategyFactory;
 import org.odema.posnew.design.strategy.DocumentStrategy;
@@ -14,9 +16,7 @@ import org.odema.posnew.dto.response.ReceiptResponse;
 import org.odema.posnew.entity.Order;
 import org.odema.posnew.entity.Receipt;
 import org.odema.posnew.entity.ShiftReport;
-import org.odema.posnew.entity.enums.PaymentMethod;
-import org.odema.posnew.entity.enums.ReceiptStatus;
-import org.odema.posnew.entity.enums.ReceiptType;
+import org.odema.posnew.entity.enums.*;
 import org.odema.posnew.exception.BadRequestException;
 import org.odema.posnew.exception.NotFoundException;
 import org.odema.posnew.mapper.ReceiptMapper;
@@ -31,10 +31,13 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 
@@ -57,21 +60,24 @@ public class ReceiptServiceImpl
             DocumentStrategyFactory strategyFactory,
             DocumentNumberService documentNumberService,
             FileStorageService fileStorageService,
+            DocumentBuilderFactory builderFactory,        // ✅ AJOUTÉ
             ReceiptRepository receiptRepository,
             ShiftReportRepository shiftReportRepository,
             ReceiptMapper receiptMapper,
             ApplicationEventPublisher eventPublisher
     ) {
-        super(orderRepository, strategyFactory, documentNumberService, fileStorageService);
-        this.receiptRepository    = receiptRepository;
+        super(orderRepository, strategyFactory, documentNumberService,
+                fileStorageService, builderFactory);         // ✅ passé au super
+        this.receiptRepository     = receiptRepository;
         this.shiftReportRepository = shiftReportRepository;
-        this.receiptMapper        = receiptMapper;
-        this.eventPublisher       = eventPublisher;
+        this.receiptMapper         = receiptMapper;
+        this.eventPublisher        = eventPublisher;
     }
 
-    // =========================================================================
-    // INTERFACE METHODS - ReceiptService
-    // =========================================================================
+    @Override
+    protected DocumentBuildContext buildContext(Receipt receipt) {
+        return DocumentBuildContext.forOrder(receipt.getOrder());
+    }
 
     @Override
     @Transactional
@@ -120,6 +126,52 @@ public class ReceiptServiceImpl
         } catch (Exception e) {
             log.error("Erreur réimpression ticket {}", receiptId, e);
             throw new RuntimeException("Erreur réimpression: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public byte[] generateReceiptPdf(UUID receiptId) throws IOException {
+        Receipt receipt = loadDocument(receiptId);
+
+        // Lire depuis le disque si déjà généré
+        if (receipt.getPdfFilename() != null && !receipt.getPdfFilename().isBlank()) {
+            try {
+                byte[] stored = fileStorageService.readFileAsBytes(
+                        receipt.getPdfFilename(), getStorageDirectory()
+                );
+                if (stored != null && stored.length > 0) {
+                    receipt.incrementPrintCount();
+                    receiptRepository.save(receipt);
+                    log.info("PDF ticket {} servi depuis disque (impression #{})",
+                            receipt.getReceiptNumber(), receipt.getPrintCount());
+                    return stored;
+                }
+            } catch (IOException e) {
+                log.warn("PDF introuvable sur disque pour {}, régénération...",
+                        receipt.getReceiptNumber());
+            }
+        }
+
+        // Régénérer si absent
+        try {
+            // Pas de strategy disponible ici — on passe null,
+            // generatePdfDocument() gère ce cas via isShiftReceipt()
+            byte[] pdfBytes = generatePdfDocument(receipt, null);
+
+            String filename = receipt.getReceiptNumber() + ".pdf";
+            fileStorageService.storeFileFromBytes(pdfBytes, filename, getStorageDirectory());
+
+            receipt.setPdfFilename(filename);
+            receipt.setPdfPath(getStorageDirectory() + "/" + filename);
+            receipt.incrementPrintCount();
+            receiptRepository.save(receipt);
+
+            log.info("PDF ticket {} régénéré (impression #{})",
+                    receipt.getReceiptNumber(), receipt.getPrintCount());
+            return pdfBytes;
+
+        } catch (DocumentException e) {
+            throw new IOException("Erreur génération PDF: " + e.getMessage(), e);
         }
     }
 //
@@ -223,39 +275,12 @@ public class ReceiptServiceImpl
     // =========================================================================
     // TICKETS SPÉCIAUX (ouverture/fermeture caisse, entrées/sorties)
     // =========================================================================
-
-    @Override
-    @Transactional
-    public ReceiptResponse generateShiftOpeningReceipt(UUID shiftReportId) {
-        ShiftReport shift = loadShift(shiftReportId);
-
-        String receiptNumber = documentNumberService.generateReceiptNumber(
-                shift.getStore().getStoreId(), ReceiptType.SHIFT_OPENING
-        );
-
-        String notes = String.format(
-                "OUVERTURE DE CAISSE\nFonds initial: %.2f FCFA\nDate: %s",
-                shift.getOpeningBalance(),
-                shift.getStartTime()
-        );
-
-        Receipt receipt = buildShiftReceipt(shift, receiptNumber,
-                ReceiptType.SHIFT_OPENING, shift.getOpeningBalance(),
-                shift.getStartTime(), notes);
-
-        Receipt saved = receiptRepository.save(receipt);
-        saveReceiptPdfQuietly(saved);
-
-        log.info("Ticket ouverture caisse généré: {}", receiptNumber);
-        return receiptMapper.toResponse(saved);
-    }
-
     @Override
     @Transactional
     public ReceiptResponse generateShiftClosingReceipt(UUID shiftReportId) {
         ShiftReport shift = loadShift(shiftReportId);
 
-        if (shift.getEndTime() == null) {
+        if (shift.getClosingTime() == null) {
             throw new BadRequestException(
                     "Impossible de générer le ticket de fermeture: la session est encore ouverte"
             );
@@ -283,14 +308,82 @@ public class ReceiptServiceImpl
 
         Receipt receipt = buildShiftReceipt(shift, receiptNumber,
                 ReceiptType.SHIFT_CLOSING, shift.getTotalSales(),
-                shift.getEndTime(), notes);
+                shift.getClosingTime(), notes);
 
         Receipt saved = receiptRepository.save(receipt);
-        saveReceiptPdfQuietly(saved);
+        saveReceiptPdfQuietly(saved);  // ✅ une seule version
 
         log.info("Ticket fermeture caisse généré: {}", receiptNumber);
         return receiptMapper.toResponse(saved);
     }
+
+    @Override
+    @Transactional
+    public ReceiptResponse generateShiftOpeningReceipt(UUID shiftReportId) {
+        ShiftReport shift = loadShift(shiftReportId);
+
+        String receiptNumber = documentNumberService.generateReceiptNumber(
+                shift.getStore().getStoreId(), ReceiptType.SHIFT_OPENING
+        );
+
+        String notes = String.format(
+                "OUVERTURE DE CAISSE\nFonds initial: %.2f FCFA\nDate: %s",
+                shift.getOpeningBalance(), shift.getOpeningTime()
+        );
+
+        Receipt receipt = buildShiftReceipt(shift, receiptNumber,
+                ReceiptType.SHIFT_OPENING, shift.getOpeningBalance(),
+                shift.getClosingTime(), notes);
+
+        Receipt saved = receiptRepository.save(receipt);
+        saveReceiptPdfQuietly(saved);  // ✅ une seule version
+
+        log.info("Ticket ouverture caisse généré: {}", receiptNumber);
+        return receiptMapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public ReceiptResponse generatePaymentReceivedReceipt(UUID orderId,
+                                                          BigDecimal amount,
+                                                          String notes) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+
+        ShiftReport shift = shiftReportRepository
+                .findOpenShiftByCashier(order.getCashier().getUserId())
+                .orElse(null);
+
+        String receiptNumber = documentNumberService.generateReceiptNumber(
+                order.getStore().getStoreId(), ReceiptType.PAYMENT_RECEIVED
+        );
+
+        Receipt receipt = Receipt.builder()
+                .receiptNumber(receiptNumber)
+                .receiptType(ReceiptType.PAYMENT_RECEIVED)
+                .status(ReceiptStatus.ACTIVE)
+                .order(order)
+                .shiftReport(shift)
+                .cashier(order.getCashier())
+                .store(order.getStore())
+                .receiptDate(LocalDateTime.now())
+                .totalAmount(amount)
+                .amountPaid(amount)
+                .changeAmount(BigDecimal.ZERO)
+                .notes(notes != null ? notes
+                        : "Paiement reçu pour commande " + order.getOrderNumber())
+                .printCount(0)
+                .isActive(true)
+                .build();
+
+        Receipt saved = receiptRepository.save(receipt);
+        saveReceiptPdfQuietly(saved);  // ✅ une seule version
+
+        log.info("Reçu paiement généré: {} - {} FCFA", receiptNumber, amount);
+        return receiptMapper.toResponse(saved);
+    }
+
+
 
     @Override
     @Transactional
@@ -409,61 +502,6 @@ public class ReceiptServiceImpl
     }
 
     @Override
-    protected byte[] generatePdfDocument(Receipt receipt,
-                                         DocumentStrategy strategy) throws DocumentException {
-        return buildReceiptPdf(receipt);
-    }
-
-    @Override
-    public byte[] generateReceiptPdf(UUID receiptId) throws IOException {
-        Receipt receipt = loadDocument(receiptId);
-
-        // ✅ FIX 1: Essayer de lire le PDF depuis le fichier déjà stocké
-        if (receipt.getPdfFilename() != null && !receipt.getPdfFilename().isBlank()) {
-            try {
-                byte[] storedPdf = fileStorageService.readFileAsBytes(
-                        receipt.getPdfFilename(),
-                        getStorageDirectory()  // "receipts"
-                );
-                if (storedPdf != null && storedPdf.length > 0) {
-                    // Incrémenter compteur sans régénérer
-                    receipt.incrementPrintCount();
-                    receiptRepository.save(receipt);
-                    log.info("PDF ticket {} servi depuis le stockage (impression #{})",
-                            receipt.getReceiptNumber(), receipt.getPrintCount());
-                    return storedPdf;
-                }
-            } catch (IOException e) {
-                log.warn("PDF stocké introuvable pour ticket {}, régénération...",
-                        receipt.getReceiptNumber());
-            }
-        }
-
-        // ✅ FIX 2: Fallback - régénérer SI le fichier n'existe pas
-        log.info("Régénération PDF pour ticket {}", receipt.getReceiptNumber());
-
-        try {
-            byte[] pdfBytes = buildReceiptPdf(receipt);
-
-            // Sauvegarder pour les prochains appels
-            String filename = receipt.getReceiptNumber() + ".pdf";
-            fileStorageService.storeFileFromBytes(pdfBytes, filename, getStorageDirectory());
-
-            // ✅ Mettre à jour l'entité avec les infos de fichier
-            receipt.setPdfFilename(filename);
-            receipt.setPdfPath(getStorageDirectory() + "/" + filename);
-            receipt.incrementPrintCount();
-            receiptRepository.save(receipt);
-
-            log.info("PDF ticket {} régénéré et sauvegardé (impression #{})",
-                    receipt.getReceiptNumber(), receipt.getPrintCount());
-            return pdfBytes;
-
-        } catch (DocumentException e) {
-            throw new IOException("Erreur génération PDF: " + e.getMessage(), e);
-        }
-    }
-    @Override
     protected void updateDocumentWithPdfPath(Receipt receipt, String pdfPath) {
         String filename = pdfPath.substring(pdfPath.lastIndexOf('/') + 1);
         receipt.setPdfFilename(filename);
@@ -537,9 +575,10 @@ public class ReceiptServiceImpl
         return receiptsDirectory;
     }
 
+
     @Override
     protected UUID getDocumentId(Receipt document) {
-        return null;
+        return document.getReceiptId();
     }
 
     // =========================================================================
@@ -569,147 +608,37 @@ public class ReceiptServiceImpl
                 .build();
     }
 */
-
-    private byte[] buildReceiptPdf(Receipt receipt) throws DocumentException {
-        DocumentBuilder builder;
+    @Override
+    protected byte[] generatePdfDocument(Receipt receipt, DocumentStrategy strategy)
+            throws DocumentException {
 
         if (isShiftReceipt(receipt.getReceiptType())) {
-            builder = new ShiftReceiptDocumentBuilder(receipt);
-        } else {
-            // ✅ Créer le builder avec configuration explicite
-            ReceiptDocumentBuilder receiptBuilder = new ReceiptDocumentBuilder(receipt.getOrder());
-
-            // TODO: Injecter ces valeurs depuis application.properties ou les passer en paramètre
-            receiptBuilder.withConfig(
-                    "ODEMA POS",  // ou depuis @Value
-                    "123 Rue Principale, Pointe-Noire",
-                    "+237 6XX XX XX XX",
-                    "TAX123456789",
-                    "Merci de votre confiance !"
-            );
-
-            builder = receiptBuilder;
+            return builderFactory.createShiftReceiptBuilder(receipt)
+                    .initialize()
+                    .addHeader()
+                    .addMainInfo()
+                    .addItemsTable()
+                    .addTotals()
+                    .addFooter()
+                    .build();
         }
 
-        return builder
-                .initialize()
-                .addHeader()
-                .addMainInfo()
-                .addItemsTable()
-                .addTotals()
-                .addFooter()
-                .build();
+        // Tickets normaux — si strategy null (régénération), utiliser le builder direct
+        if (strategy == null) {
+            DocumentBuildContext ctx = DocumentBuildContext.forOrder(receipt.getOrder());
+            return builderFactory.createBuilder(DocumentType.TICKET, ctx)
+                    .initialize()
+                    .addHeader()
+                    .addMainInfo()
+                    .addItemsTable()
+                    .addTotals()
+                    .addFooter()
+                    .build();
+        }
+
+        // Cas normal via Template Method
+        return super.generatePdfDocument(receipt, strategy);
     }
-    /**
-     * Génère les données ESC/POS pour imprimante thermique
-     */
-  /*  private String buildThermalData(Receipt receipt) {
-        StringBuilder sb = new StringBuilder();
-        String separator = "================================\n";
-        String separator2 = "--------------------------------\n";
-
-        // En-tête
-        sb.append("\n").append(separator);
-        sb.append(center(receipt.getStore().getName(), 32)).append("\n");
-        sb.append(separator);
-
-        // Numéro et type de ticket
-        sb.append(labelValue("Type", formatReceiptType(receipt.getReceiptType())));
-        sb.append(labelValue("Ticket", receipt.getReceiptNumber()));
-        sb.append(labelValue("Date", receipt.getReceiptDate()
-                .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
-        sb.append(labelValue("Caissier", receipt.getCashier().getUsername()));
-
-        if (receipt.getOrder() != null && receipt.getOrder().getCustomer() != null) {
-            sb.append(labelValue("Client",
-                    receipt.getOrder().getCustomer().getFullName()));
-        }
-
-        // Articles (seulement pour tickets de vente)
-        if (receipt.getOrder() != null && !receipt.getOrder().getItems().isEmpty()) {
-            sb.append("\n").append(separator2);
-            sb.append("ARTICLES:\n");
-            sb.append(separator2);
-
-            receipt.getOrder().getItems().forEach(item -> {
-                String productLine = item.getProduct().getName();
-                // Truncate long names
-                if (productLine.length() > 20) {
-                    productLine = productLine.substring(0, 18) + "..";
-                }
-                sb.append(productLine).append("\n");
-                sb.append(String.format("  %d x %.2f = %.2f FCFA\n",
-                        item.getQuantity(),
-                        item.getUnitPrice(),
-                        item.getFinalPrice()));
-
-                if (item.getDiscountAmount() != null
-                        && item.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
-                    sb.append(String.format("  Remise: -%.2f FCFA\n",
-                            item.getDiscountAmount()));
-                }
-            });
-            sb.append(separator2);
-        }
-
-        // Notes (pour tickets spéciaux)
-        if (receipt.getNotes() != null && !receipt.getNotes().isBlank()) {
-            sb.append("\n");
-            sb.append(receipt.getNotes()).append("\n");
-        }
-
-        // Totaux
-        sb.append("\n");
-        if (receipt.getTotalAmount() != null) {
-            sb.append(separator2);
-            if (receipt.getOrder() != null) {
-                sb.append(labelValue("Sous-total",
-                        formatAmount(receipt.getOrder().getSubtotal())));
-                if (receipt.getOrder().getTaxAmount() != null
-                        && receipt.getOrder().getTaxAmount().compareTo(BigDecimal.ZERO) > 0) {
-                    sb.append(labelValue("TVA",
-                            formatAmount(receipt.getOrder().getTaxAmount())));
-                }
-                if (receipt.getOrder().getDiscountAmount() != null
-                        && receipt.getOrder().getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
-                    sb.append(labelValue("Remise",
-                            "-" + formatAmount(receipt.getOrder().getDiscountAmount())));
-                }
-            }
-
-            sb.append(separator2);
-            sb.append(String.format("%-16s %14s\n", "TOTAL",
-                    formatAmount(receipt.getTotalAmount())));
-
-            if (receipt.getAmountPaid() != null
-                    && receipt.getAmountPaid().compareTo(BigDecimal.ZERO) > 0) {
-                sb.append(labelValue("Payé", formatAmount(receipt.getAmountPaid())));
-            }
-            if (receipt.getChangeAmount() != null
-                    && receipt.getChangeAmount().compareTo(BigDecimal.ZERO) > 0) {
-                sb.append(labelValue("Monnaie", formatAmount(receipt.getChangeAmount())));
-            }
-        }
-
-        // Méthode de paiement
-        if (receipt.getPaymentMethod() != null) {
-            sb.append(labelValue("Mode", receipt.getPaymentMethod()));
-        }
-
-        // Pied de page
-        sb.append("\n").append(separator);
-        sb.append(center("Merci de votre visite !", 32)).append("\n");
-        sb.append(center(receipt.getStore().getName(), 32)).append("\n");
-        sb.append(separator).append("\n");
-
-        // Marqueur de coupure (ESC/POS)
-        sb.append("\u001D\u0056\u0041\u0000"); // GS V A 0 = coupure partielle
-
-        return sb.toString();
-    }
-*/
-    // -------- Builders pour tickets spéciaux (shift) --------
-
     private Receipt buildShiftReceipt(ShiftReport shift,
                                       String receiptNumber,
                                       ReceiptType type,
@@ -736,12 +665,13 @@ public class ReceiptServiceImpl
 
     private void saveReceiptPdfQuietly(Receipt receipt) {
         try {
-            byte[] pdfBytes = buildReceiptPdf(receipt);
+            byte[] pdfBytes = generatePdfDocument(receipt, null);
             String filename = receipt.getReceiptNumber() + ".pdf";
             fileStorageService.storeFileFromBytes(pdfBytes, filename, receiptsDirectory);
             receipt.setPdfFilename(filename);
             receipt.setPdfPath(receiptsDirectory + "/" + filename);
             receiptRepository.save(receipt);
+            log.debug("PDF sauvegardé pour ticket {}", receipt.getReceiptNumber());
         } catch (Exception e) {
             log.warn("Impossible de générer le PDF pour le ticket {}: {}",
                     receipt.getReceiptNumber(), e.getMessage());
@@ -758,8 +688,12 @@ public class ReceiptServiceImpl
     }
 
     private ReceiptType determineReceiptType(Order order) {
+        if (order == null || order.getOrderType() == null) {
+            return ReceiptType.SALE;
+        }
         return switch (order.getOrderType()) {
             case POS_SALE, ONLINE -> ReceiptType.SALE;
+            case RETURN           -> ReceiptType.REFUND;
             default               -> ReceiptType.SALE;
         };
     }
@@ -858,7 +792,7 @@ public class ReceiptServiceImpl
         sb.append(labelValue("Type",    formatReceiptType(receipt.getReceiptType())));
         sb.append(labelValue("Ticket",  receipt.getReceiptNumber()));
         sb.append(labelValue("Date",    receipt.getReceiptDate()
-                .format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
+                .format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))));
         sb.append(labelValue("Caissier", receipt.getCashier().getUsername()));
 
         if (receipt.getOrder() != null && receipt.getOrder().getCustomer() != null) {
@@ -978,7 +912,7 @@ public class ReceiptServiceImpl
     public byte[] generateEscPosCommands(Receipt receipt) {
         String textContent = buildThermalData(receipt);
 
-        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
         try {
             // Initialiser imprimante
             baos.write(new byte[]{0x1B, 0x40}); // ESC @ = reset
@@ -987,7 +921,7 @@ public class ReceiptServiceImpl
             baos.write(new byte[]{0x1B, 0x61, 0x01}); // ESC a 1 = center
 
             // Contenu texte
-            baos.write(textContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            baos.write(textContent.getBytes(StandardCharsets.UTF_8));
 
             // Saut de ligne x3
             baos.write(new byte[]{0x0A, 0x0A, 0x0A});
@@ -995,10 +929,64 @@ public class ReceiptServiceImpl
             // Coupure partielle (GS V A 0)
             baos.write(new byte[]{0x1D, 0x56, 0x41, 0x00});
 
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             log.error("Erreur génération ESC/POS", e);
         }
 
         return baos.toByteArray();
+    }
+
+
+
+    @Override
+    @Transactional
+    public ReceiptResponse generateVoidReceipt(UUID receiptId, String reason) {
+        Receipt originalReceipt = loadDocument(receiptId);
+
+        // 1. Annuler le ticket original
+        voidReceipt(receiptId, reason);
+
+        // 2. Générer un ticket d'annulation
+        String voidNumber = documentNumberService.generateReceiptNumber(
+                originalReceipt.getStore().getStoreId(), ReceiptType.VOID
+        );
+
+        Receipt voidReceipt = Receipt.builder()
+                .receiptNumber(voidNumber)
+                .receiptType(ReceiptType.VOID)
+                .status(ReceiptStatus.ACTIVE)
+                .order(originalReceipt.getOrder())
+                .shiftReport(originalReceipt.getShiftReport())
+                .cashier(originalReceipt.getCashier())
+                .store(originalReceipt.getStore())
+                .receiptDate(LocalDateTime.now())
+                .totalAmount(originalReceipt.getTotalAmount())
+                .amountPaid(BigDecimal.ZERO)
+                .changeAmount(BigDecimal.ZERO)
+                .notes("ANNULATION de " + originalReceipt.getReceiptNumber()
+                        + "\nRaison: " + reason)
+                .printCount(0)
+                .isActive(true)
+                .build();
+
+        Receipt saved = receiptRepository.save(voidReceipt);
+        saveReceiptPdfQuietly(saved);
+
+        log.info("Ticket VOID généré: {} pour annulation de {}",
+                voidNumber, originalReceipt.getReceiptNumber());
+        return receiptMapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public ReceiptResponse generateDeliveryNoteReceipt(UUID orderId) {
+        try {
+            ReceiptTypeHolder.set(ReceiptType.DELIVERY_NOTE);
+            return generateDocument(orderId);
+        } catch (Exception e) {
+            throw new RuntimeException("Erreur génération bon de livraison: " + e.getMessage(), e);
+        } finally {
+            ReceiptTypeHolder.clear();
+        }
     }
 }

@@ -87,7 +87,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         // Mettre à jour le shift report (sauf pour crédit)
         if (shift != null && request.method() != PaymentMethod.CREDIT) {
-            shift.addSale(request.amount());
+            shift.addSale(request.amount(),request.method());
             shiftReportRepository.save(shift);
         }
 

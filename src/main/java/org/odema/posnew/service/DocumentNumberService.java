@@ -2,6 +2,7 @@ package org.odema.posnew.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.odema.posnew.entity.enums.DocumentType;
 import org.odema.posnew.entity.enums.InvoiceType;
 import org.odema.posnew.entity.enums.ReceiptType;
 import org.odema.posnew.repository.InvoiceRepository;
@@ -53,22 +54,7 @@ public class DocumentNumberService {
      **/
     @Transactional
     public synchronized String generateReceiptNumber(UUID storeId, ReceiptType type) {
-        String    prefix    = getReceiptPrefix(type);
-        String    storeCode = buildStoreCode(storeId);
-        LocalDate today     = LocalDate.now();
-
-        String dateStr = String.format("%04d%02d%02d",
-                today.getYear(), today.getMonthValue(), today.getDayOfMonth());
-
-        long count = receiptRepository.countByStoreAndYearMonth(
-                storeId, today.getYear(), today.getMonthValue()
-        );
-
-        return resolveUniqueNumber(
-                (seq) -> String.format("%s-%s-%s-%04d", prefix, storeCode, dateStr, seq),
-                receiptRepository::existsByReceiptNumber,
-                count
-        );
+        return getReceiptPrefix(storeId, type);
     }
 
     /**
@@ -114,25 +100,13 @@ public class DocumentNumberService {
      */
     @Transactional
     public synchronized String generateInvoiceNumber(InvoiceType type) {
-        String    prefix    = getInvoicePrefix(type);
-        LocalDate today     = LocalDate.now();
-        String    yearMonth = String.format("%04d%02d", today.getYear(), today.getMonthValue());
-
-        long count = invoiceRepository.countByTypeAndYearMonth(
-                type, today.getYear(), today.getMonthValue()
-        );
-
-        return resolveUniqueNumber(
-                (seq) -> String.format("%s-%s-%04d", prefix, yearMonth, seq),
-                invoiceRepository::existsByInvoiceNumber,
-                count
-        );
+        return getPrefix(type);
     }
 
     /**
      * Retourne le préfixe correspondant au type de facture.
      */
-    private String getInvoicePrefix(InvoiceType type) {
+    private String getInvoicePrefix( InvoiceType type) {
         return switch (type) {
             case INVOICE           -> "INV";  // Facture standard
             case CREDIT_SALE        -> "CS"; //vente a credit
@@ -226,5 +200,66 @@ public class DocumentNumberService {
             case DELIVERY_NOTE    -> "BLD";  // Bon de livraison (ticket)
             case VOID             -> "VD";   // Ticket annulé
         };
+    }
+
+    public String generateDeliveryNoteNumber(InvoiceType type)  {
+        return getPrefix(type);
+    }
+
+    public String generateCreditNoteNumber(InvoiceType type) {
+        return getPrefix(type);
+    }
+
+    private String getPrefix(InvoiceType type) {
+        String    prefix    = getInvoicePrefix(type);
+        LocalDate today     = LocalDate.now();
+        String    yearMonth = String.format("%04d%02d", today.getYear(), today.getMonthValue());
+
+        long count = invoiceRepository.countByTypeAndYearMonth(
+                type, today.getYear(), today.getMonthValue()
+        );
+
+        return resolveUniqueNumber(
+                (seq) -> String.format("%s-%s-%04d", prefix, yearMonth, seq),
+                invoiceRepository::existsByInvoiceNumber,
+                count
+        );
+    }
+
+    public String generateProformaNumber(InvoiceType type) {
+        return getPrefix(type);
+    }
+
+    public String generateRefundNumber( ) {
+        return String.format("RFD-%s-%s",
+                LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE),
+                UUID.randomUUID().toString().substring(0, 8).toUpperCase()
+        );
+    }
+    private String getReceiptPrefix(UUID storeId, ReceiptType type) {
+        String    prefix    = getReceiptPrefix(type);
+        String    storeCode = buildStoreCode(storeId);
+        LocalDate today     = LocalDate.now();
+
+        String dateStr = String.format("%04d%02d%02d",
+                today.getYear(), today.getMonthValue(), today.getDayOfMonth());
+
+        long count = receiptRepository.countByStoreAndYearMonth(
+                storeId, today.getYear(), today.getMonthValue()
+        );
+
+        return resolveUniqueNumber(
+                (seq) -> String.format("%s-%s-%s-%04d", prefix, storeCode, dateStr, seq),
+                receiptRepository::existsByReceiptNumber,
+                count
+        );
+    }
+
+
+    public String generateTransactionNumber() {
+        return String.format("TX-%s-%s",
+                LocalDate.now().format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE),
+                UUID.randomUUID().toString().substring(0, 8).toUpperCase()
+        );
     }
 }

@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.odema.posnew.dto.request.ShiftReportRequest;
 import org.odema.posnew.dto.response.ApiResponse;
+import org.odema.posnew.dto.response.ShiftReportDetailResponse;
 import org.odema.posnew.dto.response.ShiftReportResponse;
 import org.odema.posnew.security.CustomUserDetails;
 import org.odema.posnew.service.ShiftReportService;
@@ -37,7 +38,6 @@ public class ShiftReportController {
     public ResponseEntity<ApiResponse<ShiftReportResponse>> openShift(
             @Valid @RequestBody ShiftReportRequest request,
             @AuthenticationPrincipal CustomUserDetails userDetails) {
-        // Now we can directly get the UUID!
         UUID cashierId = userDetails.getUserId();
         ShiftReportResponse response = shiftReportService.openShift(request, cashierId);
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -49,9 +49,10 @@ public class ShiftReportController {
     @Operation(summary = "Fermer un shift")
     public ResponseEntity<ApiResponse<ShiftReportResponse>> closeShift(
             @PathVariable UUID shiftReportId,
-            @RequestParam BigDecimal closingBalance,
-            @RequestParam BigDecimal actualBalance) {
-        ShiftReportResponse response = shiftReportService.closeShift(shiftReportId, closingBalance, actualBalance);
+            @RequestParam(required = false) BigDecimal actualBalance,
+            @RequestParam(required = false) String notes) {
+        // MODIFIÉ : utilisation de la nouvelle signature avec actualBalance et notes
+        ShiftReportResponse response = shiftReportService.closeShift(shiftReportId, actualBalance, notes);
         return ResponseEntity.ok(ApiResponse.success("Shift fermé avec succès", response));
     }
 
@@ -64,10 +65,20 @@ public class ShiftReportController {
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
+    @GetMapping("/{shiftReportId}/details")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN', 'CASHIER')")
+    @Operation(summary = "Obtenir les détails complets d'un shift avec paiements")
+    public ResponseEntity<ApiResponse<ShiftReportDetailResponse>> getShiftDetail(
+            @PathVariable UUID shiftReportId) {
+        ShiftReportDetailResponse response = shiftReportService.getShiftDetail(shiftReportId);
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN')")
     @Operation(summary = "Obtenir tous les shifts")
     public ResponseEntity<ApiResponse<List<ShiftReportResponse>>> getAllShiftReports() {
+        // MODIFIÉ : méthode getAllShifts() serait mieux, mais on utilise getShiftsByCashier avec null filtré côté service
         List<ShiftReportResponse> responses = shiftReportService.getShiftsByCashier(null);
         return ResponseEntity.ok(ApiResponse.success(responses));
     }
@@ -90,6 +101,25 @@ public class ShiftReportController {
         return ResponseEntity.ok(ApiResponse.success(responses));
     }
 
+    // NOUVEAU : Endpoints pour les caisses
+    @GetMapping("/cash-register/{cashRegisterId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN')")
+    @Operation(summary = "Obtenir les shifts d'une caisse spécifique")
+    public ResponseEntity<ApiResponse<List<ShiftReportResponse>>> getShiftsByCashRegister(
+            @PathVariable UUID cashRegisterId) {
+        List<ShiftReportResponse> responses = shiftReportService.getShiftsByCashRegister(cashRegisterId);
+        return ResponseEntity.ok(ApiResponse.success(responses));
+    }
+
+    @GetMapping("/cash-register/{cashRegisterId}/open")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN', 'CASHIER')")
+    @Operation(summary = "Obtenir les shifts ouverts d'une caisse spécifique")
+    public ResponseEntity<ApiResponse<List<ShiftReportResponse>>> getOpenShiftsByCashRegister(
+            @PathVariable UUID cashRegisterId) {
+        List<ShiftReportResponse> responses = shiftReportService.getOpenShiftsByCashRegister(cashRegisterId);
+        return ResponseEntity.ok(ApiResponse.success(responses));
+    }
+
     @GetMapping("/status/{status}")
     @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN')")
     @Operation(summary = "Obtenir les shifts par statut")
@@ -104,7 +134,6 @@ public class ShiftReportController {
     @Operation(summary = "Obtenir le shift ouvert du caissier courant")
     public ResponseEntity<ApiResponse<ShiftReportResponse>> getOpenShift(
             @AuthenticationPrincipal CustomUserDetails userDetails) {
-        // Direct access to user UUID - much cleaner!
         UUID cashierId = userDetails.getUserId();
         ShiftReportResponse response = shiftReportService.getOpenShiftByCashier(cashierId);
         return ResponseEntity.ok(ApiResponse.success(response));
@@ -173,6 +202,43 @@ public class ShiftReportController {
     public ResponseEntity<ApiResponse<BigDecimal>> getTotalRefundsByStore(
             @PathVariable UUID storeId) {
         BigDecimal total = shiftReportService.getTotalRefundsByStore(storeId);
+        return ResponseEntity.ok(ApiResponse.success(total));
+    }
+
+    // NOUVEAU : Endpoints pour les totaux par méthode de paiement
+    @GetMapping("/{shiftReportId}/totals/cash")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN', 'CASHIER')")
+    @Operation(summary = "Obtenir le total des paiements en espèces d'un shift")
+    public ResponseEntity<ApiResponse<BigDecimal>> getCashTotal(
+            @PathVariable UUID shiftReportId) {
+        BigDecimal total = shiftReportService.getCashTotal(shiftReportId);
+        return ResponseEntity.ok(ApiResponse.success(total));
+    }
+
+    @GetMapping("/{shiftReportId}/totals/mobile")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN', 'CASHIER')")
+    @Operation(summary = "Obtenir le total des paiements mobile d'un shift")
+    public ResponseEntity<ApiResponse<BigDecimal>> getMobileTotal(
+            @PathVariable UUID shiftReportId) {
+        BigDecimal total = shiftReportService.getMobileTotal(shiftReportId);
+        return ResponseEntity.ok(ApiResponse.success(total));
+    }
+
+    @GetMapping("/{shiftReportId}/totals/card")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN', 'CASHIER')")
+    @Operation(summary = "Obtenir le total des paiements par carte d'un shift")
+    public ResponseEntity<ApiResponse<BigDecimal>> getCardTotal(
+            @PathVariable UUID shiftReportId) {
+        BigDecimal total = shiftReportService.getCardTotal(shiftReportId);
+        return ResponseEntity.ok(ApiResponse.success(total));
+    }
+
+    @GetMapping("/{shiftReportId}/totals/credit")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN', 'CASHIER')")
+    @Operation(summary = "Obtenir le total des crédits d'un shift")
+    public ResponseEntity<ApiResponse<BigDecimal>> getCreditTotal(
+            @PathVariable UUID shiftReportId) {
+        BigDecimal total = shiftReportService.getCreditTotal(shiftReportId);
         return ResponseEntity.ok(ApiResponse.success(total));
     }
 }

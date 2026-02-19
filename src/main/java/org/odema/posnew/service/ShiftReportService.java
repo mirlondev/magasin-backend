@@ -13,7 +13,7 @@ import java.util.UUID;
 public interface ShiftReportService {
     ShiftReportResponse openShift(ShiftReportRequest request, UUID cashierId);
 
-    ShiftReportResponse closeShift(UUID shiftReportId, BigDecimal closingBalance, BigDecimal actualBalance);
+   // ShiftReportResponse closeShift(UUID shiftReportId, BigDecimal closingBalance, BigDecimal actualBalance);
 
     ShiftReportResponse getShiftReportById(UUID shiftReportId);
 
@@ -55,4 +55,15 @@ public interface ShiftReportService {
     // Mettre à jour la méthode closeShift pour utiliser les paiements
     @Transactional
     ShiftReportResponse closeShift(UUID shiftReportId, BigDecimal actualBalance, String notes);
+
+    //new method to calculate expected balance based on payments
+
+
+    List<ShiftReportResponse> getShiftsByCashRegister(UUID cashRegisterId); // AJOUTÉ
+
+
+
+    List<ShiftReportResponse> getOpenShiftsByCashRegister(UUID cashRegisterId); // AJOUTÉ
+
+
 }

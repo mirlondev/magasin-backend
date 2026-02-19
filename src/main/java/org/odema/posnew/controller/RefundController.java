@@ -1,140 +1,195 @@
 package org.odema.posnew.controller;
 
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.dto.request.RefundRequest;
-import org.odema.posnew.dto.response.ApiResponse;
 import org.odema.posnew.dto.response.RefundResponse;
+import org.odema.posnew.entity.enums.RefundStatus;
 import org.odema.posnew.service.RefundService;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/refunds")
 @RequiredArgsConstructor
-@Tag(name = "Refunds", description = "API de gestion des remboursements")
-@SecurityRequirement(name = "bearerAuth")
+@Tag(name = "Refunds", description = "Gestion des remboursements")
 public class RefundController {
 
     private final RefundService refundService;
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Créer un nouveau remboursement")
-    public ResponseEntity<ApiResponse<RefundResponse>> createRefund(
-            @Valid @RequestBody RefundRequest request,
-            @AuthenticationPrincipal org.springframework.security.core.userdetails.UserDetails userDetails) {
-        UUID cashierId = UUID.fromString(userDetails.getUsername()); // À adapter
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
+    @Operation(summary = "Créer un remboursement")
+    public ResponseEntity<RefundResponse> createRefund(
+            @RequestBody RefundRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        UUID cashierId = extractUserId(userDetails);
+        log.info("Création remboursement par {}", cashierId);
         RefundResponse response = refundService.createRefund(request, cashierId);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success("Demande de remboursement créée", response));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @GetMapping("/{refundId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Obtenir un remboursement par son ID")
-    public ResponseEntity<ApiResponse<RefundResponse>> getRefund(
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
+    @Operation(summary = "Récupérer un remboursement par ID")
+    public ResponseEntity<RefundResponse> getRefundById(
+            @Parameter(description = "ID du remboursement")
             @PathVariable UUID refundId) {
-        RefundResponse response = refundService.getRefundById(refundId);
-        return ResponseEntity.ok(ApiResponse.success(response));
+        return ResponseEntity.ok(refundService.getRefundById(refundId));
     }
 
-    @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Obtenir tous les remboursements")
-    public ResponseEntity<ApiResponse<List<RefundResponse>>> getAllRefunds() {
-        List<RefundResponse> responses = refundService.getAllRefunds();
-        return ResponseEntity.ok(ApiResponse.success(responses));
+    @GetMapping("/number/{refundNumber}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
+    @Operation(summary = "Récupérer un remboursement par numéro")
+    public ResponseEntity<RefundResponse> getRefundByNumber(
+            @Parameter(description = "Numéro du remboursement")
+            @PathVariable String refundNumber) {
+        return ResponseEntity.ok(refundService.getRefundByNumber(refundNumber));
     }
 
     @GetMapping("/order/{orderId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Obtenir les remboursements d'une commande")
-    public ResponseEntity<ApiResponse<List<RefundResponse>>> getRefundsByOrder(
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
+    @Operation(summary = "Lister les remboursements d'une commande")
+    public ResponseEntity<List<RefundResponse>> getRefundsByOrder(
             @PathVariable UUID orderId) {
-        List<RefundResponse> responses = refundService.getRefundsByOrder(orderId);
-        return ResponseEntity.ok(ApiResponse.success(responses));
+        return ResponseEntity.ok(refundService.getRefundsByOrder(orderId));
     }
 
     @GetMapping("/store/{storeId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Obtenir les remboursements d'un store")
-    public ResponseEntity<ApiResponse<List<RefundResponse>>> getRefundsByStore(
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "Lister les remboursements d'un magasin")
+    public ResponseEntity<List<RefundResponse>> getRefundsByStore(
             @PathVariable UUID storeId) {
-        List<RefundResponse> responses = refundService.getRefundsByStore(storeId);
-        return ResponseEntity.ok(ApiResponse.success(responses));
+        return ResponseEntity.ok(refundService.getRefundsByStore(storeId));
     }
 
     @GetMapping("/status/{status}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Obtenir les remboursements par statut")
-    public ResponseEntity<ApiResponse<List<RefundResponse>>> getRefundsByStatus(
-            @PathVariable String status) {
-        List<RefundResponse> responses = refundService.getRefundsByStatus(status);
-        return ResponseEntity.ok(ApiResponse.success(responses));
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "Lister les remboursements par statut")
+    public ResponseEntity<List<RefundResponse>> getRefundsByStatus(
+            @Parameter(description = "Statut du remboursement")
+            @PathVariable RefundStatus status) {
+        return ResponseEntity.ok(refundService.getRefundsByStatus(status));
     }
 
-    @PatchMapping("/{refundId}/approve")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER')")
+    @GetMapping("/store/{storeId}/date-range")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "Lister les remboursements par période")
+    public ResponseEntity<List<RefundResponse>> getRefundsByDateRange(
+            @PathVariable UUID storeId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return ResponseEntity.ok(refundService.getRefundsByDateRange(storeId, startDate, endDate));
+    }
+
+    @PostMapping("/{refundId}/approve")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @Operation(summary = "Approuver un remboursement")
-    public ResponseEntity<ApiResponse<RefundResponse>> approveRefund(
-            @PathVariable UUID refundId) {
-        RefundResponse response = refundService.approveRefund(refundId);
-        return ResponseEntity.ok(ApiResponse.success("Remboursement approuvé", response));
+    public ResponseEntity<RefundResponse> approveRefund(
+            @PathVariable UUID refundId,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        UUID approverId = extractUserId(userDetails);
+        log.info("Approbation remboursement {} par {}", refundId, approverId);
+        return ResponseEntity.ok(refundService.approveRefund(refundId, approverId));
     }
 
-    @PatchMapping("/{refundId}/reject")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER')")
+    @PostMapping("/{refundId}/process")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
+    @Operation(summary = "Traiter un remboursement approuvé")
+    public ResponseEntity<RefundResponse> processRefund(
+            @PathVariable UUID refundId,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        UUID processorId = extractUserId(userDetails);
+        log.info("Traitement remboursement {} par {}", refundId, processorId);
+        return ResponseEntity.ok(refundService.processRefund(refundId, processorId));
+    }
+
+    @PostMapping("/{refundId}/complete")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
+    @Operation(summary = "Compléter un remboursement")
+    public ResponseEntity<RefundResponse> completeRefund(
+            @PathVariable UUID refundId) {
+        log.info("Complétion remboursement {}", refundId);
+        return ResponseEntity.ok(refundService.completeRefund(refundId));
+    }
+
+    @PostMapping("/{refundId}/reject")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @Operation(summary = "Rejeter un remboursement")
-    public ResponseEntity<ApiResponse<RefundResponse>> rejectRefund(
+    public ResponseEntity<RefundResponse> rejectRefund(
             @PathVariable UUID refundId,
             @RequestParam String reason) {
-        RefundResponse response = refundService.rejectRefund(refundId, reason);
-        return ResponseEntity.ok(ApiResponse.success("Remboursement rejeté", response));
+        log.warn("Rejet remboursement {} - Raison: {}", refundId, reason);
+        return ResponseEntity.ok(refundService.rejectRefund(refundId, reason));
     }
 
-    @PatchMapping("/{refundId}/complete")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Compléter un remboursement")
-    public ResponseEntity<ApiResponse<RefundResponse>> completeRefund(
-            @PathVariable UUID refundId) {
-        RefundResponse response = refundService.completeRefund(refundId);
-        return ResponseEntity.ok(ApiResponse.success("Remboursement complété", response));
-    }
-
-    @GetMapping("/order/{orderId}/refundable")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Vérifier si une commande peut être remboursée")
-    public ResponseEntity<ApiResponse<Boolean>> canOrderBeRefunded(
-            @PathVariable UUID orderId) {
-        boolean canBeRefunded = refundService.canOrderBeRefunded(orderId);
-        return ResponseEntity.ok(ApiResponse.success(canBeRefunded));
-    }
-
-    @GetMapping("/order/{orderId}/refundable-amount")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER', 'CASHIER')")
-    @Operation(summary = "Obtenir le montant remboursable d'une commande")
-    public ResponseEntity<ApiResponse<BigDecimal>> getRefundableAmount(
-            @PathVariable UUID orderId) {
-        BigDecimal amount = refundService.getRefundableAmount(orderId);
-        return ResponseEntity.ok(ApiResponse.success(amount));
-    }
-
-    @DeleteMapping("/{refundId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'SHOP_MANAGER')")
+    @PostMapping("/{refundId}/cancel")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     @Operation(summary = "Annuler un remboursement")
-    public ResponseEntity<ApiResponse<Void>> cancelRefund(@PathVariable UUID refundId) {
-        refundService.cancelRefund(refundId);
-        return ResponseEntity.ok(ApiResponse.success("Remboursement annulé", null));
+    public ResponseEntity<RefundResponse> cancelRefund(
+            @PathVariable UUID refundId,
+            @RequestParam String reason) {
+        log.warn("Annulation remboursement {} - Raison: {}", refundId, reason);
+        return ResponseEntity.ok(refundService.cancelRefund(refundId, reason));
+    }
+
+    @GetMapping("/{refundId}/pdf")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
+    @Operation(summary = "Télécharger le PDF du remboursement")
+    public ResponseEntity<byte[]> downloadRefundPdf(
+            @PathVariable UUID refundId) {
+        byte[] pdf = refundService.generateRefundPdf(refundId);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDispositionFormData("attachment", "remboursement_" + refundId + ".pdf");
+
+        return new ResponseEntity<>(pdf, headers, HttpStatus.OK);
+    }
+
+    @GetMapping("/store/{storeId}/total")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "Obtenir le total des remboursements sur une période")
+    public ResponseEntity<BigDecimal> getTotalRefunds(
+            @PathVariable UUID storeId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return ResponseEntity.ok(refundService.getTotalRefundsByPeriod(storeId, startDate, endDate));
+    }
+
+    @GetMapping("/pending/count")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "Compter les remboursements en attente")
+    public ResponseEntity<Long> countPendingRefunds() {
+        return ResponseEntity.ok(refundService.countPendingRefunds());
+    }
+
+    @GetMapping("/shift/{shiftReportId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
+    @Operation(summary = "Lister les remboursements d'une session de caisse")
+    public ResponseEntity<List<RefundResponse>> getRefundsByShift(
+            @PathVariable UUID shiftReportId) {
+        return ResponseEntity.ok(refundService.getRefundsByShift(shiftReportId));
+    }
+
+    private UUID extractUserId(UserDetails userDetails) {
+        // Adapter selon votre implémentation d'authentification
+        return UUID.fromString(userDetails.getUsername());
     }
 }

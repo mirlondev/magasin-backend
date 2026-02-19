@@ -196,7 +196,7 @@ public class DataInitializer implements CommandLineRunner {
                 .latitude(new BigDecimal("-4.7827"))
                 .longitude(new BigDecimal("11.8544"))
                 .openingHours("Lun-Sam: 08:00-20:00, Dim: 09:00-18:00")
-                .storeType(StoreType.MAIN)
+                    .storeType(StoreCategory.MAIN)
                 .status(StoreStatus.ACTIVE)
                 .isActive(true)
                 .storeAdmin(users.get(2)) // manager_centre
@@ -569,8 +569,8 @@ public class DataInitializer implements CommandLineRunner {
                         .shiftNumber("SHIFT-" + String.format("%05d", shiftCounter++))
                         .cashier(cashier)
                         .store(store)
-                        .startTime(date.withHour(8).withMinute(0))
-                        .endTime(date.withHour(16).withMinute(0))
+                        .openingTime(date.withHour(8).withMinute(0))
+                        .closingTime(date.withHour(16).withMinute(0))
                         .openingBalance(openingBalance)
                         .closingBalance(actualBalance)
                         .totalSales(totalSales)
@@ -600,7 +600,7 @@ public class DataInitializer implements CommandLineRunner {
                     .shiftNumber("SHIFT-" + String.format("%05d", shiftCounter++))
                     .cashier(cashier)
                     .store(store)
-                    .startTime(LocalDateTime.now().withHour(8).withMinute(0))
+                    .openingTime(LocalDateTime.now().withHour(8).withMinute(0))
                     .openingBalance(openingBalance)
                     .closingBalance(BigDecimal.ZERO) // Will be set when shift closes
                     .totalSales(BigDecimal.ZERO)
@@ -641,7 +641,7 @@ public class DataInitializer implements CommandLineRunner {
 
                 ShiftReport shift = shifts.stream()
                         .filter(s -> s.getStore().equals(store) &&
-                                s.getStartTime().toLocalDate().equals(date.toLocalDate()) &&
+                                s.getOpeningTime().toLocalDate().equals(date.toLocalDate()) &&
                                 s.getStatus() == ShiftStatus.CLOSED)
                         .findFirst()
                         .orElse(null);

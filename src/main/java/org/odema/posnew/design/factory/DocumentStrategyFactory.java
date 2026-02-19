@@ -50,11 +50,14 @@ public class DocumentStrategyFactory {
     public DocumentStrategy getStrategyByOrderType(OrderType orderType) {
         String strategyName = switch (orderType) {
             case POS_SALE, ONLINE -> "receiptDocumentStrategy";
-            case CREDIT_SALE -> "invoiceDocumentStrategy";
-            case PROFORMA -> "proformaDocumentStrategy";
-            case RETURN, EXCHANGE -> null;
+            case CREDIT_SALE      -> "invoiceDocumentStrategy";
+            case PROFORMA         -> "proformaDocumentStrategy";
+            // ✅ CORRIGÉ — ces cas ne plantent plus
+            case RETURN           -> "receiptDocumentStrategy";  // ticket de remboursement
+            case EXCHANGE         -> "invoiceDocumentStrategy";  // note de crédit
         };
-
         return getStrategy(strategyName);
     }
+
+
 }

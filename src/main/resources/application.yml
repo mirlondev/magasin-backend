@@ -8,7 +8,7 @@ spring:
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: create-drop
     show-sql: true
     properties:
       hibernate:
@@ -52,12 +52,28 @@ logging:
 # application.yml - Partie factures
 app:
   company:
-    name: "POS MIKILI"
-    address: "123 Rue Principale, Yaoundé, Cameroun"
+    name: "MIKILI POS"
+    address: "123 Rue Principale, Pointe-Noire"
     phone: "+237 6XX XX XX XX"
     email: "contact@odema.com"
-    tax-id: "M123456789"
-    website: "https://www.odema.com"
+    tax-id: "TAX-123456789"
+    bank-name: "Banque Atlantique"
+    bank-account: "CM21 1234 5678 9012 3456 7890 123"
+    website: "www.odema.com"
+    logo-path: "static/logo.png"
+  receipt:
+    footer-message: "Merci de votre visite !"
+
+  refund:
+    footer-message: "Merci de votre confiance !"
+
+  document:
+    thermal-width: "80mm"
+    currency: "FCFA"
+    default-tax-rate: 19.00
+    storage-path: "./documents"
+    retention-days: 2555  # 7 ans
+
 
   invoice:
     logo-path: "classpath:static/logo.png"

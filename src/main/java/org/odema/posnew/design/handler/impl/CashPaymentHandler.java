@@ -59,7 +59,7 @@ public class CashPaymentHandler extends AbstractPaymentHandler {
         Payment savedPayment = paymentRepository.save(payment);
 
         // Mettre à jour shift
-        shift.addSale(request.amount());
+        shift.addSale(request.amount(),request.method());
         shiftReportRepository.save(shift);
 
         log.info("Paiement espèces enregistré: ID {}", savedPayment.getPaymentId());

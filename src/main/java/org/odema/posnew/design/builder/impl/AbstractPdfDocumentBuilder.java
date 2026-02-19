@@ -1,43 +1,28 @@
 package org.odema.posnew.design.builder.impl;
 
-import com.itextpdf.text.*;
-import com.itextpdf.text.pdf.PdfPCell;
-import com.itextpdf.text.pdf.PdfWriter;
+import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
 import org.odema.posnew.entity.Order;
-import org.springframework.beans.factory.annotation.Value;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.math.BigDecimal;
 
+/**
+ * Classe abstraite de base pour tous les builders PDF.
+ * Utilise exclusivement openhtmltopdf — iText est supprimé.
+ *
+ * Responsabilités :
+ *  - Utilitaires partagés : esc(), formatCurrency(), xhtmlDocStart(), renderHtmlToPdf()
+ *  - Contrat minimal : outputStream + order
+ *
+ * Ce que cette classe NE fait PAS :
+ *  - Pas de config @Value (chaque builder reçoit sa config via withConfig())
+ *  - Pas de initialize() ni build() par défaut (logique propre à chaque builder)
+ */
 @Slf4j
 public abstract class AbstractPdfDocumentBuilder implements DocumentBuilder {
 
-    // Configuration
-    @Value("${app.company.name:ODEMA POS}")
-    protected String companyName;
-
-    @Value("${app.company.address:123 Rue Principale}")
-    protected String companyAddress;
-
-    @Value("${app.company.phone:+237 6XX XX XX XX}")
-    protected String companyPhone;
-
-    @Value("${app.company.email:contact@odema.com}")
-    protected String companyEmail;
-
-    @Value("${app.company.tax-id:TAX-123456}")
-    protected String companyTaxId;
-
-    // Couleurs design
-    protected static final BaseColor HEADER_COLOR = new BaseColor(41, 128, 185);
-    protected static final BaseColor ACCENT_COLOR = new BaseColor(52, 152, 219);
-    protected static final BaseColor TEXT_DARK = new BaseColor(44, 62, 80);
-
-    // État
-    protected Document document;
     protected ByteArrayOutputStream outputStream;
     protected Order order;
 
@@ -45,66 +30,62 @@ public abstract class AbstractPdfDocumentBuilder implements DocumentBuilder {
         this.order = order;
     }
 
-    @Override
-    public DocumentBuilder initialize() {
-        this.document = new Document(PageSize.A4);
-        this.outputStream = new ByteArrayOutputStream();
+    // ═══════════════════════════════════════════════════
+    // UTILITAIRES HTML/XHTML communs
+    // ═══════════════════════════════════════════════════
 
-        try {
-            PdfWriter.getInstance(document, outputStream);
-            document.open();
-            log.debug("Document PDF initialisé");
-        } catch (DocumentException e) {
-            log.error("Erreur initialisation PDF", e);
-            throw new RuntimeException("Erreur initialisation document", e);
-        }
-
-        return this;
+    /**
+     * Génère le début du document XHTML valide pour openhtmltopdf.
+     * Appeler en début de initialize() dans chaque sous-classe.
+     */
+    protected String xhtmlDocStart(String css) {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" " +
+                "\"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">" +
+                "<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"fr\" lang=\"fr\">" +
+                "<head>" +
+                "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\"/>" +
+                "<style>" + css + "</style>" +
+                "</head><body>";
     }
 
-    @Override
-    public byte[] build() throws DocumentException {
+    /**
+     * Rend le HTML en PDF via openhtmltopdf.
+     * Appeler dans build() de chaque sous-classe.
+     */
+    protected byte[] renderHtmlToPdf(String html) {
         try {
-            document.close();
-            byte[] bytes = outputStream.toByteArray();
-            log.debug("Document PDF construit: {} bytes", bytes.length);
-            return bytes;
-        } finally {
-            try {
-                outputStream.close();
-            } catch (IOException e) {
-                log.warn("Erreur fermeture stream", e);
-            }
-        }
-    }
-
-    // Méthodes utilitaires communes
-    protected void addLogo() {
-        try {
-            InputStream logoStream = getClass().getClassLoader()
-                    .getResourceAsStream("static/logo.jpg");
-
-            if (logoStream != null) {
-                Image logo = Image.getInstance(logoStream.readAllBytes());
-                logo.scaleToFit(80, 80);
-                document.add(logo);
-            }
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            PdfRendererBuilder builder = new PdfRendererBuilder();
+            builder.withHtmlContent(html, null);
+            builder.toStream(baos);
+            builder.run();
+            log.debug("PDF rendu: {} octets", baos.size());
+            return baos.toByteArray();
         } catch (Exception e) {
-            log.debug("Logo non trouvé ou erreur chargement", e);
+            log.error("Erreur rendu PDF: {}", e.getMessage());
+            throw new RuntimeException("Échec génération PDF", e);
         }
     }
 
-    protected PdfPCell createStyledCell(String text, Font font,
-                                        int alignment, BaseColor bgColor) {
-        PdfPCell cell = new PdfPCell(new Phrase(text, font));
-        cell.setHorizontalAlignment(alignment);
-        cell.setPadding(8);
-        cell.setBackgroundColor(bgColor);
-        cell.setBorder(Rectangle.NO_BORDER);
-        return cell;
+    /**
+     * Échappe TOUS les caractères spéciaux XML/HTML.
+     * Obligatoire sur toute valeur dynamique insérée dans le HTML.
+     * Le & DOIT être remplacé EN PREMIER pour éviter le double-échappement.
+     */
+    protected String esc(String s) {
+        if (s == null) return "";
+        return s.replace("&",  "&amp;")
+                .replace("<",  "&lt;")
+                .replace(">",  "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'",  "&#39;");
     }
 
-    protected String formatCurrency(java.math.BigDecimal amount) {
+    /**
+     * Formate un montant en FCFA.
+     */
+    protected String formatCurrency(BigDecimal amount) {
         if (amount == null) return "0 FCFA";
         return String.format("%,.0f FCFA", amount);
     }

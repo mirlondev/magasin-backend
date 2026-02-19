@@ -17,6 +17,11 @@ public record ShiftReportDetailResponse(
         String cashierName,
         UUID storeId,
         String storeName,
+
+        UUID cashRegisterId,        // AJOUTÉ
+        String cashRegisterNumber,  // AJOUTÉ
+        String cashRegisterName,    // AJOUTÉ
+
         LocalDateTime startTime,
         LocalDateTime endTime,
         BigDecimal openingBalance,

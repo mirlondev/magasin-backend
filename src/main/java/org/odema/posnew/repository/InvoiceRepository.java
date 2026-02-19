@@ -84,4 +84,5 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID> {
             @Param("year")  int year,
             @Param("month") int month
     );
+    Optional<Invoice> findByOrder_OrderIdAndInvoiceType(UUID orderId, InvoiceType type);
 }

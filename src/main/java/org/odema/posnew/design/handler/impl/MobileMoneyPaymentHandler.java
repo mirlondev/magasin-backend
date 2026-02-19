@@ -57,7 +57,7 @@ public class MobileMoneyPaymentHandler extends AbstractPaymentHandler {
 
         Payment savedPayment = paymentRepository.save(payment);
 
-        shift.addSale(request.amount());
+        shift.addSale(request.amount(), request.method());
         shiftReportRepository.save(shift);
 
         log.info("Paiement Mobile Money enregistré: ID {}", savedPayment.getPaymentId());

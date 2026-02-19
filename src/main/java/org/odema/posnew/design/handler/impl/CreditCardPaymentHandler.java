@@ -63,7 +63,7 @@ public class CreditCardPaymentHandler extends AbstractPaymentHandler {
         Payment savedPayment = paymentRepository.save(payment);
 
         // Mettre à jour shift
-        shift.addSale(request.amount());
+        shift.addSale(request.amount(), request.method());
         shiftReportRepository.save(shift);
 
         log.info("Paiement carte enregistré: ID {}", savedPayment.getPaymentId());

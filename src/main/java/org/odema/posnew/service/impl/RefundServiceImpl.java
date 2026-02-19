@@ -1,250 +1,239 @@
 package org.odema.posnew.service.impl;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.odema.posnew.design.builder.DocumentBuilderFactory;
+import org.odema.posnew.design.builder.impl.RefundDocumentBuilder;
+import org.odema.posnew.design.context.DocumentBuildContext;
+import org.odema.posnew.dto.request.RefundItemRequest;
 import org.odema.posnew.dto.request.RefundRequest;
 import org.odema.posnew.dto.response.RefundResponse;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.Refund;
-import org.odema.posnew.entity.ShiftReport;
-import org.odema.posnew.entity.User;
-import org.odema.posnew.entity.enums.OrderStatus;
-import org.odema.posnew.entity.enums.PaymentStatus;
-import org.odema.posnew.entity.enums.RefundStatus;
-import org.odema.posnew.entity.enums.RefundType;
+import org.odema.posnew.entity.*;
+import org.odema.posnew.entity.enums.*;
 import org.odema.posnew.exception.BadRequestException;
 import org.odema.posnew.exception.NotFoundException;
 import org.odema.posnew.mapper.RefundMapper;
 import org.odema.posnew.repository.*;
+import org.odema.posnew.service.DocumentNumberService;
+import org.odema.posnew.service.FileStorageService;
 import org.odema.posnew.service.RefundService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RefundServiceImpl implements RefundService {
 
     private final RefundRepository refundRepository;
+    private final RefundItemRepository refundItemRepository;
     private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
+    private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final StoreRepository storeRepository;
     private final ShiftReportRepository shiftReportRepository;
+    private final TransactionRepository transactionRepository;
+    private final DocumentNumberService documentNumberService;
+    private final FileStorageService fileStorageService;
+    private  final  ReceiptRepository receiptRepository;
     private final RefundMapper refundMapper;
+   private final DocumentBuilderFactory builderFactory;        // ✅ AJOUTÉ
+
+    @Value("${app.file.directories.refunds:refunds}")
+    private String refundsDirectory;
 
     @Override
     @Transactional
     public RefundResponse createRefund(RefundRequest request, UUID cashierId) {
-        // Récupérer la commande
+        log.info("Création remboursement pour commande {} par caissier {}",
+                request.orderId(), cashierId);
+
+        // Validation
         Order order = orderRepository.findById(request.orderId())
                 .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
 
-        // Récupérer le caissier
         User cashier = userRepository.findById(cashierId)
                 .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
 
         // Vérifier que la commande peut être remboursée
-        if (!canOrderBeRefunded(order.getOrderId())) {
-            throw new BadRequestException("Cette commande ne peut pas être remboursée");
+        if (order.getStatus() == OrderStatus.CANCELLED) {
+            throw new BadRequestException("Impossible de rembourser une commande annulée");
         }
 
-        // Vérifier le montant du remboursement
-        BigDecimal refundableAmount = getRefundableAmount(order.getOrderId());
-        if (request.refundAmount().compareTo(refundableAmount) > 0) {
-            throw new BadRequestException(
-                    "Le montant du remboursement dépasse le montant remboursable. " +
-                            "Montant remboursable: " + refundableAmount);
-        }
-
-        // Vérifier le type de remboursement
-        RefundType refundType = request.refundType() != null ? request.refundType() : RefundType.FULL;
-        if (refundType == RefundType.FULL && request.refundAmount().compareTo(refundableAmount) != 0) {
-            throw new BadRequestException("Pour un remboursement complet, le montant doit être égal au montant remboursable");
-        }
-
-        // Générer un numéro de remboursement unique
-        String refundNumber = generateRefundNumber();
-
-        // Récupérer le report de shift ouvert du caissier
-        Optional<ShiftReport> openShift = shiftReportRepository.findOpenShiftByCashier(cashierId);
+        // Récupérer la session de caisse ouverte
+        ShiftReport shift = shiftReportRepository.findOpenShiftByCashier(cashierId)
+                .orElse(null);
 
         // Créer le remboursement
+        assert shift != null;
+
         Refund refund = Refund.builder()
-                .refundNumber(refundNumber)
+                .refundNumber(documentNumberService.generateRefundNumber())
                 .order(order)
-                .refundAmount(request.refundAmount())
-                .refundType(refundType)
+                .originalOrder(order)
+                .refundType(request.refundType())
+                .status(RefundStatus.PENDING)
+                .refundMethod(request.refundMethod())
                 .reason(request.reason())
                 .cashier(cashier)
                 .store(order.getStore())
-                .shiftReport(openShift.orElse(null))
+                .shiftReport(shift)
                 .notes(request.notes())
-                .status(RefundStatus.PENDING)
+                .items(new ArrayList<>())
                 .isActive(true)
                 .build();
 
-        // Si un shift est ouvert, ajouter le remboursement au total
-        openShift.ifPresent(shift -> {
-            shift.addRefund(request.refundAmount());
-            shiftReportRepository.save(shift);
-        });
+        // Ajouter les articles
+        if (request.items() != null && !request.items().isEmpty()) {
+            for (RefundItemRequest itemReq : request.items()) {
+                addRefundItem(refund, itemReq);
+            }
+        } else {
+            // Remboursement total - tous les articles
+            for (OrderItem orderItem : order.getItems()) {
+                RefundItem refundItem = RefundItem.builder()
+                        .originalOrderItem(orderItem)
+                        .product(orderItem.getProduct())
+                        .quantity(orderItem.getQuantity())
+                        .unitPrice(orderItem.getUnitPrice())
+                        .refundAmount(orderItem.getFinalPrice())
+                        .reason(request.reason())
+                        .isReturned(false)
+                        .build();
+                refund.addItem(refundItem);
+            }
+        }
 
-        Refund savedRefund = refundRepository.save(refund);
-        return refundMapper.toResponse(savedRefund);
+        refund.recalculateTotals();
+
+        Refund saved = refundRepository.save(refund);
+        log.info("Remboursement créé: {} - Montant: {}",
+                saved.getRefundNumber(), saved.getTotalRefundAmount());
+
+        return refundMapper.toResponse(saved);
+    }
+
+    private void addRefundItem(Refund refund, RefundItemRequest itemReq) {
+        OrderItem orderItem = orderItemRepository.findById(itemReq.orderItemId())
+                .orElseThrow(() -> new NotFoundException("Article de commande non trouvé"));
+
+        // Vérifier la quantité
+        if (itemReq.quantity() > orderItem.getQuantity()) {
+            throw new BadRequestException("Quantité à rembourser supérieure à la quantité achetée");
+        }
+
+        // Vérifier si déjà remboursé
+        Integer alreadyRefunded = refundItemRepository.sumQuantityByProductAndCompleted(
+                orderItem.getProduct().getProductId());
+        if (alreadyRefunded != null) {
+            int remaining = orderItem.getQuantity() - alreadyRefunded;
+            if (itemReq.quantity() > remaining) {
+                throw new BadRequestException("Quantité déjà remboursée pour cet article");
+            }
+        }
+
+        BigDecimal unitPrice = orderItem.getUnitPrice();
+        BigDecimal itemTotal = unitPrice.multiply(new BigDecimal(itemReq.quantity()));
+
+        RefundItem refundItem = RefundItem.builder()
+                .originalOrderItem(orderItem)
+                .product(orderItem.getProduct())
+                .quantity(itemReq.quantity())
+                .unitPrice(unitPrice)
+                .refundAmount(itemTotal)
+                .restockingFee(itemReq.restockingFee())
+                .reason(itemReq.reason())
+                .isReturned(false)
+                .build();
+
+        refund.addItem(refundItem);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public RefundResponse getRefundById(UUID refundId) {
         Refund refund = refundRepository.findById(refundId)
                 .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
         return refundMapper.toResponse(refund);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public RefundResponse getRefundByNumber(String refundNumber) {
         Refund refund = refundRepository.findByRefundNumber(refundNumber)
                 .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
         return refundMapper.toResponse(refund);
     }
 
     @Override
-    @Transactional
-    public RefundResponse updateRefund(UUID refundId, RefundRequest request) {
-        Refund refund = refundRepository.findById(refundId)
-                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
-        // Vérifier que le remboursement peut être modifié
-        if (refund.getStatus() != RefundStatus.PENDING) {
-            throw new BadRequestException("Impossible de modifier un remboursement " + refund.getStatus());
-        }
-
-        // Mettre à jour les champs
-        if (request.reason() != null) refund.setReason(request.reason());
-        if (request.notes() != null) refund.setNotes(request.notes());
-
-        // Mettre à jour le montant si spécifié
-        if (request.refundAmount() != null) {
-            // Vérifier le nouveau montant
-            BigDecimal refundableAmount = getRefundableAmount(refund.getOrder().getOrderId());
-            if (request.refundAmount().compareTo(refundableAmount) > 0) {
-                throw new BadRequestException(
-                        "Le montant du remboursement dépasse le montant remboursable. " +
-                                "Montant remboursable: " + refundableAmount);
-            }
-
-            refund.setRefundAmount(request.refundAmount());
-        }
-
-        if (request.refundType() != null) refund.setRefundType(request.refundType());
-
-        Refund updatedRefund = refundRepository.save(refund);
-        return refundMapper.toResponse(updatedRefund);
-    }
-
-    @Override
-    @Transactional
-    public void cancelRefund(UUID refundId) {
-        Refund refund = refundRepository.findById(refundId)
-                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
-        if (refund.getStatus() != RefundStatus.PENDING && refund.getStatus() != RefundStatus.APPROVED) {
-            throw new BadRequestException("Impossible d'annuler un remboursement " + refund.getStatus());
-        }
-
-        refund.setStatus(RefundStatus.CANCELLED);
-        refund.setIsActive(false);
-
-        // Si le remboursement était associé à un shift ouvert, ajuster le total
-        if (refund.getShiftReport() != null && refund.getShiftReport().isOpen()) {
-            ShiftReport shift = refund.getShiftReport();
-            shift.setTotalRefunds(shift.getTotalRefunds().subtract(refund.getRefundAmount()));
-            shift.calculateBalances();
-            shiftReportRepository.save(shift);
-        }
-
-        refundRepository.save(refund);
-    }
-
-    @Override
-    public List<RefundResponse> getAllRefunds() {
-        return refundRepository.findAll().stream()
-                .filter(Refund::getIsActive)
-                .map(refundMapper::toResponse)
-                .toList();
-    }
-
-    @Override
+    @Transactional(readOnly = true)
     public List<RefundResponse> getRefundsByOrder(UUID orderId) {
         return refundRepository.findByOrder_OrderId(orderId).stream()
-                .filter(Refund::getIsActive)
                 .map(refundMapper::toResponse)
                 .toList();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<RefundResponse> getRefundsByStore(UUID storeId) {
         return refundRepository.findByStore_StoreId(storeId).stream()
-                .filter(Refund::getIsActive)
                 .map(refundMapper::toResponse)
                 .toList();
     }
 
     @Override
-    public List<RefundResponse> getRefundsByCashier(UUID cashierId) {
-        return refundRepository.findByCashier_UserId(cashierId).stream()
-                .filter(Refund::getIsActive)
+    @Transactional(readOnly = true)
+    public List<RefundResponse> getRefundsByStatus(RefundStatus status) {
+        return refundRepository.findByStatus(status).stream()
                 .map(refundMapper::toResponse)
                 .toList();
     }
 
     @Override
-    public List<RefundResponse> getRefundsByStatus(String status) {
-        try {
-            RefundStatus refundStatus = RefundStatus.valueOf(status.toUpperCase());
-            return refundRepository.findByStatus(refundStatus).stream()
-                    .filter(Refund::getIsActive)
-                    .map(refundMapper::toResponse)
-                    .toList();
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Statut de remboursement invalide: " + status);
-        }
+    @Transactional(readOnly = true)
+    public List<RefundResponse> getRefundsByDateRange(UUID storeId, LocalDate startDate, LocalDate endDate) {
+        LocalDateTime start = startDate.atStartOfDay();
+        LocalDateTime end = endDate.atTime(LocalTime.MAX);
+        return refundRepository.findByStoreAndDateRange(storeId, start, end).stream()
+                .map(refundMapper::toResponse)
+                .toList();
     }
 
     @Override
     @Transactional
-    public RefundResponse approveRefund(UUID refundId) {
+    public RefundResponse approveRefund(UUID refundId, UUID approverId) {
         Refund refund = refundRepository.findById(refundId)
                 .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
 
-        if (refund.getStatus() != RefundStatus.PENDING) {
-            throw new BadRequestException("Seuls les remboursements en attente peuvent être approuvés");
-        }
+        refund.approveRefund(approverId);
+        Refund saved = refundRepository.save(refund);
 
-        refund.approveRefund();
-        Refund updatedRefund = refundRepository.save(refund);
-
-        return refundMapper.toResponse(updatedRefund);
+        log.info("Remboursement {} approuvé par {}", refund.getRefundNumber(), approverId);
+        return refundMapper.toResponse(saved);
     }
 
     @Override
     @Transactional
-    public RefundResponse rejectRefund(UUID refundId, String reason) {
+    public RefundResponse processRefund(UUID refundId, UUID processorId) {
         Refund refund = refundRepository.findById(refundId)
                 .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
 
-        if (refund.getStatus() != RefundStatus.PENDING) {
-            throw new BadRequestException("Seuls les remboursements en attente peuvent être rejetés");
-        }
+        refund.startProcessing(processorId);
+        Refund saved = refundRepository.save(refund);
 
-        refund.rejectRefund(reason);
-        Refund updatedRefund = refundRepository.save(refund);
-
-        return refundMapper.toResponse(updatedRefund);
+        log.info("Remboursement {} en cours de traitement par {}",
+                refund.getRefundNumber(), processorId);
+        return refundMapper.toResponse(saved);
     }
 
     @Override
@@ -253,67 +242,212 @@ public class RefundServiceImpl implements RefundService {
         Refund refund = refundRepository.findById(refundId)
                 .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
 
-        if (refund.getStatus() != RefundStatus.APPROVED && refund.getStatus() != RefundStatus.PROCESSING) {
-            throw new BadRequestException("Seuls les remboursements approuvés ou en cours de traitement peuvent être complétés");
-        }
-
         refund.completeRefund();
-        Refund updatedRefund = refundRepository.save(refund);
 
-        // Mettre à jour le statut de la commande si complètement remboursée
-        Order order = refund.getOrder();
-        if (order.isFullyRefunded()) {
-            order.setStatus(OrderStatus.REFUNDED);
-            orderRepository.save(order);
+        // Créer la transaction financière
+        createRefundTransaction(refund);
+
+        // Mettre à jour le stock si articles retournés
+        for (RefundItem item : refund.getItems()) {
+            if (item.getIsReturned()) {
+                returnProductToStock(item);
+            }
         }
 
-        return refundMapper.toResponse(updatedRefund);
+        // Mettre à jour le shift report
+        if (refund.getShiftReport() != null) {
+            refund.getShiftReport().addRefund(refund.getTotalRefundAmount());
+        }
+
+        Refund saved = refundRepository.save(refund);
+
+        // Générer le PDF
+        generateRefundPdf(saved.getRefundId());
+
+        log.info("Remboursement {} terminé - Montant: {}",
+                refund.getRefundNumber(), refund.getTotalRefundAmount());
+
+        return refundMapper.toResponse(saved);
+    }
+
+    private void createRefundTransaction(Refund refund) {
+        Transaction transaction = Transaction.builder()
+                .transactionNumber(documentNumberService.generateTransactionNumber())
+                .transactionType(TransactionType.REFUND)
+                .amount(refund.getTotalRefundAmount())
+                .paymentMethod(mapRefundMethodToPaymentMethod(refund.getRefundMethod()))
+                .refund(refund)
+                .cashier(refund.getCashier())
+                .store(refund.getStore())
+                .shiftReport(refund.getShiftReport())
+                .transactionDate(LocalDateTime.now())
+                .description("Remboursement " + refund.getRefundNumber())
+                .isReconciled(false)
+                .isVoided(false)
+                .build();
+
+        transactionRepository.save(transaction);
+    }
+
+    private PaymentMethod mapRefundMethodToPaymentMethod(RefundMethod method) {
+        if (method == null) return PaymentMethod.CASH;
+        return switch (method) {
+            case CREDIT_CARD -> PaymentMethod.CREDIT_CARD;
+            case MOBILE_MONEY -> PaymentMethod.MOBILE_MONEY;
+            case BANK_TRANSFER -> PaymentMethod.BANK_TRANSFER;
+            default -> PaymentMethod.CASH;
+        };
+    }
+
+    private void returnProductToStock(RefundItem item) {
+        Product product = item.getProduct();
+        if (product != null) {
+            int newQuantity = product.getTotalStock() + item.getQuantity();
+            product.setStockInStore(newQuantity);
+
+            productRepository.save(product);
+            log.debug("Stock mis à jour pour {}: +{}", product.getName(), item.getQuantity());
+        }
     }
 
     @Override
-    public boolean canOrderBeRefunded(UUID orderId) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
+    @Transactional
+    public RefundResponse rejectRefund(UUID refundId, String reason) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
 
-        // Une commande peut être remboursée si:
-        // 1. Elle est terminée
-        // 2. Elle n'est pas déjà complètement remboursée
-        // 3. Elle a été payée
-        return order.getStatus() == OrderStatus.COMPLETED &&
-                !order.isFullyRefunded() &&
-                (order.getPaymentStatus() == PaymentStatus.PAID ||
-                        order.getPaymentStatus() == PaymentStatus.PARTIALLY_PAID);
+        refund.rejectRefund(reason);
+        Refund saved = refundRepository.save(refund);
+
+        log.warn("Remboursement {} rejeté: {}", refund.getRefundNumber(), reason);
+        return refundMapper.toResponse(saved);
     }
 
     @Override
-    public BigDecimal getRefundableAmount(UUID orderId) {
-        if (!canOrderBeRefunded(orderId)) {
-            return BigDecimal.ZERO;
-        }
+    @Transactional
+    public RefundResponse cancelRefund(UUID refundId, String reason) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
 
-        Order order = orderRepository.findById(orderId).orElseThrow();
-        BigDecimal totalRefunded = refundRepository.getTotalRefundedAmountByOrder(orderId);
+        refund.cancelRefund(reason);
+        Refund saved = refundRepository.save(refund);
 
-        if (totalRefunded == null) {
-            totalRefunded = BigDecimal.ZERO;
-        }
-
-        return order.getTotalAmount().subtract(totalRefunded);
+        log.warn("Remboursement {} annulé: {}", refund.getRefundNumber(), reason);
+        return refundMapper.toResponse(saved);
     }
 
-    private String generateRefundNumber() {
-        String prefix = "REF";
-        String timestamp = String.valueOf(System.currentTimeMillis());
-        String random = String.valueOf((int) (Math.random() * 1000));
+    /*@Override
+    @Transactional
+    public byte[] generateRefundPdf(UUID refundId) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
 
-        String refundNumber = prefix + timestamp.substring(timestamp.length() - 6) + random;
+        try {
+            RefundDocumentBuilder builder = new RefundDocumentBuilder(refund, refund.getOrder())
+                    .withConfig(
+                            "ODEMA POS",
+                            "123 Rue Principale, Pointe-Noire",
+                            "+237 6XX XX XX XX",
+                            "TAX-123456789",
+                            "Merci de votre confiance !"
+                    );
 
-        // Vérifier l'unicité
-        while (refundRepository.findByRefundNumber(refundNumber).isPresent()) {
-            random = String.valueOf((int) (Math.random() * 1000));
-            refundNumber = prefix + timestamp.substring(timestamp.length() - 6) + random;
+            byte[] pdf = builder
+                    .initialize()
+                    .addHeader()
+                    .addMainInfo()
+                    .addItemsTable()
+                    .addTotals()
+                    .addFooter()
+                    .build();
+
+            // Sauvegarder le PDF
+            String filename = refund.getRefundNumber() + ".pdf";
+            fileStorageService.storeFileFromBytes(pdf, filename, refundsDirectory);
+
+            log.info("PDF remboursement généré: {}", filename);
+            return pdf;
+
+        } catch (Exception e) {
+            log.error("Erreur génération PDF remboursement {}", refundId, e);
+            throw new RuntimeException("Erreur génération PDF", e);
         }
+    }
+*/
 
-        return refundNumber;
+    // ✅ generateRefundPdf() — remplacer le new RefundDocumentBuilder() direct
+    @Override
+    @Transactional
+    public byte[] generateRefundPdf(UUID refundId) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
+
+        try {
+            // ✅ Via factory, plus de new RefundDocumentBuilder()
+            DocumentBuildContext ctx = DocumentBuildContext.forRefund(
+                    refund.getOrder(), refund
+            );
+
+            byte[] pdf = builderFactory.createBuilder(DocumentType.REFUND, ctx)
+                    .initialize()
+                    .addHeader()
+                    .addMainInfo()
+                    .addItemsTable()
+                    .addTotals()
+                    .addFooter()
+                    .build();
+
+            String filename = refund.getRefundNumber() + ".pdf";
+            fileStorageService.storeFileFromBytes(pdf, filename, refundsDirectory);
+
+            log.info("PDF remboursement généré: {}", filename);
+            return pdf;
+
+        } catch (Exception e) {
+            log.error("Erreur génération PDF remboursement {}", refundId, e);
+            throw new RuntimeException("Erreur génération PDF", e);
+        }
+    }
+
+    @Override
+    @Transactional
+    public byte[] regenerateRefundPdf(UUID refundId) {
+        return generateRefundPdf(refundId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public BigDecimal getTotalRefundsByPeriod(UUID storeId, LocalDate startDate, LocalDate endDate) {
+        LocalDateTime start = startDate.atStartOfDay();
+        LocalDateTime end = endDate.atTime(LocalTime.MAX);
+        BigDecimal total = refundRepository.sumCompletedRefundsByStoreAndDateRange(storeId, start, end);
+        return total != null ? total : BigDecimal.ZERO;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Long countPendingRefunds() {
+        return (long) refundRepository.findByStatus(RefundStatus.PENDING).size();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RefundResponse> getRefundsByShift(UUID shiftReportId) {
+        return refundRepository.findByShiftReport_ShiftReportId(shiftReportId).stream()
+                .map(refundMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public RefundResponse getRefundByOrder(UUID orderId) {
+        return refundRepository.findByOrder_OrderId(orderId)
+                .stream()
+                .filter(r -> r.getStatus() == RefundStatus.COMPLETED)
+                .findFirst()
+                .map(refundMapper::toResponse)
+                .orElseThrow(() -> new NotFoundException(
+                        "Aucun remboursement complété trouvé pour la commande: " + orderId
+                ));
     }
 }

@@ -1,40 +1,50 @@
 package org.odema.posnew.dto.response;
 
+import org.odema.posnew.entity.enums.RefundMethod;
 import org.odema.posnew.entity.enums.RefundStatus;
 import org.odema.posnew.entity.enums.RefundType;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
+/**
+ * DTO de réponse pour un remboursement.
+ */
 public record RefundResponse(
         UUID refundId,
         String refundNumber,
-
         UUID orderId,
         String orderNumber,
-        BigDecimal orderTotal,
-
-        BigDecimal refundAmount,
         RefundType refundType,
         RefundStatus status,
+        RefundMethod refundMethod,
+        BigDecimal refundAmount,
+        BigDecimal totalRefundAmount,
+        BigDecimal restockingFee,
         String reason,
-
+        String notes,
         UUID cashierId,
         String cashierName,
-
         UUID storeId,
         String storeName,
-
         UUID shiftReportId,
-        String shiftNumber,
-
-        String notes,
-
-        LocalDateTime createdAt,
+        List<RefundItemResponse> items,
+        Integer totalItems,
+        LocalDateTime approvedAt,
         LocalDateTime processedAt,
         LocalDateTime completedAt,
-
-        Boolean isActive
+        LocalDateTime createdAt
 ) {
+    /**
+     * Constructeur avec calcul des totaux
+     */
+    public RefundResponse {
+        if (items != null) {
+            totalItems = items.stream()
+                    .mapToInt(RefundItemResponse::quantity)
+                    .sum();
+        }
+    }
 }

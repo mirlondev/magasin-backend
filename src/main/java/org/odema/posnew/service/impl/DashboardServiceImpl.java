@@ -383,7 +383,7 @@ public class DashboardServiceImpl implements DashboardService {
                 storeId,
                 store.getName(),
                 currentShift.map(ShiftReport::getShiftReportId).orElse(null),
-                currentShift.map(ShiftReport::getStartTime).orElse(null),
+                currentShift.map(ShiftReport::getOpeningTime).orElse(null),
                 currentShift.map(ShiftReport::getOpeningBalance).orElse(BigDecimal.ZERO),
                 currentShift.map(ShiftReport::getActualBalance).orElse(BigDecimal.ZERO),
                 currentShift.map(ShiftReport::getTotalTransactions).orElse(0),

@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.odema.posnew.dto.request.ShiftReportRequest;
 import org.odema.posnew.dto.response.ShiftReportDetailResponse;
 import org.odema.posnew.dto.response.ShiftReportResponse;
+import org.odema.posnew.entity.CashRegister;
 import org.odema.posnew.entity.Payment;
 import org.odema.posnew.entity.ShiftReport;
 import org.odema.posnew.entity.Store;
@@ -14,6 +15,7 @@ import org.odema.posnew.entity.enums.ShiftStatus;
 import org.odema.posnew.exception.BadRequestException;
 import org.odema.posnew.exception.NotFoundException;
 import org.odema.posnew.mapper.ShiftReportMapper;
+import org.odema.posnew.repository.CashRegisterRepository;
 import org.odema.posnew.repository.PaymentRepository;
 import org.odema.posnew.repository.ShiftReportRepository;
 import org.odema.posnew.repository.StoreRepository;
@@ -36,15 +38,22 @@ public class ShiftReportServiceImpl implements ShiftReportService {
     private final ShiftReportRepository shiftReportRepository;
     private final UserRepository userRepository;
     private final StoreRepository storeRepository;
+    private final CashRegisterRepository cashRegisterRepository; // AJOUTÉ
     private final ShiftReportMapper shiftReportMapper;
     private final PaymentRepository paymentRepository;
 
     @Override
     @Transactional
     public ShiftReportResponse openShift(ShiftReportRequest request, UUID cashierId) {
-
+        // Vérifier si le caissier a déjà un shift ouvert
         if (shiftReportRepository.findOpenShiftByCashier(cashierId).isPresent()) {
             throw new BadRequestException("Le caissier a déjà un shift ouvert");
+        }
+
+        // Vérifier si la caisse est déjà ouverte par un autre caissier
+        if (request.cashRegisterId() != null &&
+                shiftReportRepository.findOpenShiftByCashRegister(request.cashRegisterId()).isPresent()) {
+            throw new BadRequestException("Cette caisse est déjà ouverte par un autre caissier");
         }
 
         User cashier = userRepository.findById(cashierId)
@@ -53,8 +62,23 @@ public class ShiftReportServiceImpl implements ShiftReportService {
         Store store = storeRepository.findById(request.storeId())
                 .orElseThrow(() -> new NotFoundException("Store non trouvé"));
 
-        BigDecimal openingBalance =
-                request.openingBalance() != null ? request.openingBalance() : BigDecimal.ZERO;
+        // Récupérer et valider la caisse
+        CashRegister cashRegister = cashRegisterRepository.findById(request.cashRegisterId())
+                .orElseThrow(() -> new NotFoundException("Caisse non trouvée"));
+
+        // Vérifier que la caisse appartient bien au store
+        if (!cashRegister.getStore().getStoreId().equals(request.storeId())) {
+            throw new BadRequestException("Cette caisse n'appartient pas à ce magasin");
+        }
+
+        // Vérifier que la caisse est active
+        if (!cashRegister.getIsActive()) {
+            throw new BadRequestException("Cette caisse est désactivée");
+        }
+
+        BigDecimal openingBalance = request.openingBalance() != null
+                ? request.openingBalance()
+                : BigDecimal.ZERO;
 
         String shiftNumber = generateShiftNumber();
 
@@ -62,19 +86,17 @@ public class ShiftReportServiceImpl implements ShiftReportService {
                 .shiftNumber(shiftNumber)
                 .cashier(cashier)
                 .store(store)
-                .startTime(LocalDateTime.now())
-
+                .cashRegister(cashRegister) // AJOUTÉ
+                .openingTime(LocalDateTime.now())
                 .openingBalance(openingBalance)
                 .actualBalance(openingBalance)
                 .expectedBalance(openingBalance)
                 .closingBalance(openingBalance)
                 .discrepancy(BigDecimal.ZERO)
-
                 .totalSales(BigDecimal.ZERO)
                 .totalRefunds(BigDecimal.ZERO)
                 .netSales(BigDecimal.ZERO)
                 .totalTransactions(0)
-
                 .status(ShiftStatus.OPEN)
                 .notes(request.notes())
                 .build();
@@ -82,9 +104,10 @@ public class ShiftReportServiceImpl implements ShiftReportService {
         ShiftReport savedShift = shiftReportRepository.save(shift);
         return shiftReportMapper.toResponse(savedShift);
     }
-  /*  @Override
+
+    @Override
     @Transactional
-    public ShiftReportResponse closeShift(UUID shiftReportId, BigDecimal closingBalance, BigDecimal actualBalance) {
+    public ShiftReportResponse closeShift(UUID shiftReportId, BigDecimal actualBalance, String notes) {
         ShiftReport shift = shiftReportRepository.findById(shiftReportId)
                 .orElseThrow(() -> new NotFoundException("Shift non trouvé"));
 
@@ -92,19 +115,52 @@ public class ShiftReportServiceImpl implements ShiftReportService {
             throw new BadRequestException("Le shift est déjà fermé");
         }
 
+        // Calculer les totaux à partir des paiements
+        BigDecimal totalSales = calculateTotalSalesFromPayments(shiftReportId);
+        BigDecimal totalRefunds = shift.getTotalRefunds();
+
+        // Calculer le solde attendu
+        BigDecimal expectedBalance = shift.getOpeningBalance()
+                .add(totalSales)
+                .subtract(totalRefunds);
+
+        // Définir le solde de clôture
+        BigDecimal closingBalance = actualBalance != null ? actualBalance : expectedBalance;
+        BigDecimal discrepancy = closingBalance.subtract(expectedBalance);
+
+        // Calculer les totaux par méthode de paiement pour les détails
+        BigDecimal cashTotal = getCashTotal(shiftReportId);
+        BigDecimal mobileTotal = getMobileTotal(shiftReportId);
+        BigDecimal cardTotal = getCardTotal(shiftReportId);
+
+        // Mettre à jour le shift
         shift.setClosingBalance(closingBalance);
-        shift.setActualBalance(actualBalance);
+        shift.setActualBalance(closingBalance);
+        shift.setExpectedBalance(expectedBalance);
+        shift.setDiscrepancy(discrepancy);
+        shift.setTotalSales(totalSales);
+        shift.setNetSales(totalSales.subtract(totalRefunds));
+        shift.setTotalTransactions(countTransactions(shiftReportId));
+
+        // Ajouter les détails de fermeture dans les notes
+        String closureDetails = String.format(
+                "Fermeture - Cash: %s, Mobile: %s, Card: %s, Écart: %s",
+                cashTotal, mobileTotal, cardTotal, discrepancy
+        );
+
+        String existingNotes = shift.getNotes() != null ? shift.getNotes() + "\n" : "";
+        shift.setNotes(existingNotes + closureDetails + (notes != null ? " - Notes: " + notes : ""));
+
         shift.closeShift();
 
         ShiftReport updatedShift = shiftReportRepository.save(shift);
         return shiftReportMapper.toResponse(updatedShift);
     }
-*/
+
     @Override
     public ShiftReportResponse getShiftReportById(UUID shiftReportId) {
         ShiftReport shift = shiftReportRepository.findById(shiftReportId)
                 .orElseThrow(() -> new NotFoundException("Shift non trouvé"));
-
         return shiftReportMapper.toResponse(shift);
     }
 
@@ -112,7 +168,6 @@ public class ShiftReportServiceImpl implements ShiftReportService {
     public ShiftReportResponse getShiftReportByNumber(String shiftNumber) {
         ShiftReport shift = shiftReportRepository.findByShiftNumber(shiftNumber)
                 .orElseThrow(() -> new NotFoundException("Shift non trouvé"));
-
         return shiftReportMapper.toResponse(shift);
     }
 
@@ -126,6 +181,14 @@ public class ShiftReportServiceImpl implements ShiftReportService {
     @Override
     public List<ShiftReportResponse> getShiftsByStore(UUID storeId) {
         return shiftReportRepository.findByStore_StoreId(storeId).stream()
+                .map(shiftReportMapper::toResponse)
+                .toList();
+    }
+
+    // AJOUTÉ
+    @Override
+    public List<ShiftReportResponse> getShiftsByCashRegister(UUID cashRegisterId) {
+        return shiftReportRepository.findByCashRegister_CashRegisterId(cashRegisterId).stream()
                 .map(shiftReportMapper::toResponse)
                 .toList();
     }
@@ -153,13 +216,20 @@ public class ShiftReportServiceImpl implements ShiftReportService {
     public ShiftReportResponse getOpenShiftByCashier(UUID cashierId) {
         ShiftReport shift = shiftReportRepository.findOpenShiftByCashier(cashierId)
                 .orElseThrow(() -> new NotFoundException("Aucun shift ouvert trouvé pour ce caissier"));
-
         return shiftReportMapper.toResponse(shift);
     }
 
     @Override
     public List<ShiftReportResponse> getOpenShiftsByStore(UUID storeId) {
         return shiftReportRepository.findOpenShiftsByStore(storeId).stream()
+                .map(shiftReportMapper::toResponse)
+                .toList();
+    }
+
+    // AJOUTÉ
+    @Override
+    public List<ShiftReportResponse> getOpenShiftsByCashRegister(UUID cashRegisterId) {
+        return shiftReportRepository.findOpenShiftsByStore(cashRegisterId).stream()
                 .map(shiftReportMapper::toResponse)
                 .toList();
     }
@@ -174,11 +244,9 @@ public class ShiftReportServiceImpl implements ShiftReportService {
             throw new BadRequestException("Impossible de modifier un shift fermé");
         }
 
-        // Mettre à jour les champs
         if (request.notes() != null) shift.setNotes(request.notes());
         if (request.openingBalance() != null) shift.setOpeningBalance(request.openingBalance());
 
-        // Recalculer les soldes
         shift.calculateBalances();
 
         ShiftReport updatedShift = shiftReportRepository.save(shift);
@@ -220,7 +288,6 @@ public class ShiftReportServiceImpl implements ShiftReportService {
 
         shift.setStatus(ShiftStatus.OPEN);
         ShiftReport updatedShift = shiftReportRepository.save(shift);
-
         return shiftReportMapper.toResponse(updatedShift);
     }
 
@@ -236,70 +303,14 @@ public class ShiftReportServiceImpl implements ShiftReportService {
         return total != null ? BigDecimal.valueOf(total) : BigDecimal.ZERO;
     }
 
-    private String generateShiftNumber() {
-        String prefix = "SHIFT";
-        String timestamp = String.valueOf(System.currentTimeMillis());
-        String random = String.valueOf((int) (Math.random() * 1000));
-
-        String shiftNumber = prefix + timestamp.substring(timestamp.length() - 6) + random;
-
-        // Vérifier l'unicité
-        while (shiftReportRepository.findByShiftNumber(shiftNumber).isPresent()) {
-            random = String.valueOf((int) (Math.random() * 1000));
-            shiftNumber = prefix + timestamp.substring(timestamp.length() - 6) + random;
-        }
-
-        return shiftNumber;
-    }
-
-
-
-
-
-
-    // Modifier la méthode closeShift pour inclure les totaux par méthode
-    @Transactional
     @Override
-    public ShiftReportResponse closeShift(UUID shiftReportId, BigDecimal closingBalance, BigDecimal actualBalance) {
-        ShiftReport shift = shiftReportRepository.findById(shiftReportId)
-                .orElseThrow(() -> new NotFoundException("Shift non trouvé"));
-
-        if (shift.isClosed()) {
-            throw new BadRequestException("Le shift est déjà fermé");
-        }
-
-        // Calculer les totaux par méthode de paiement
-        BigDecimal cashTotal = getCashTotal(shiftReportId);
-        BigDecimal mobileTotal = getMobileTotal(shiftReportId);
-        BigDecimal cardTotal = getCardTotal(shiftReportId);
-
-        shift.setClosingBalance(closingBalance);
-        shift.setActualBalance(actualBalance);
-
-        // Ajouter les totaux détaillés (vous pouvez les stocker dans un champ JSON ou créer une nouvelle entité)
-        String details = String.format("Cash: %s, Mobile: %s, Card: %s",
-                cashTotal, mobileTotal, cardTotal);
-        shift.setNotes(shift.getNotes() != null ?
-                shift.getNotes() + "\n" + details : details);
-
-        shift.closeShift();
-
-        ShiftReport updatedShift = shiftReportRepository.save(shift);
-        return shiftReportMapper.toResponse(updatedShift);
-}
-
-//new methods
-
     @Transactional
-    @Override
     public ShiftReportDetailResponse getShiftDetail(UUID shiftReportId) {
         ShiftReport shift = shiftReportRepository.findById(shiftReportId)
                 .orElseThrow(() -> new NotFoundException("Shift non trouvé"));
 
-        // Récupérer tous les paiements de ce shift
         List<Payment> payments = paymentRepository.findByShiftReport_ShiftReportId(shiftReportId);
 
-        // Calculer les totaux par méthode de paiement
         Map<PaymentMethod, BigDecimal> paymentsByMethod = new HashMap<>();
         BigDecimal totalCash = BigDecimal.ZERO;
         BigDecimal totalMobile = BigDecimal.ZERO;
@@ -313,10 +324,7 @@ public class ShiftReportServiceImpl implements ShiftReportService {
                     case CASH -> totalCash = totalCash.add(payment.getAmount());
                     case MOBILE_MONEY -> totalMobile = totalMobile.add(payment.getAmount());
                     case CREDIT_CARD -> totalCard = totalCard.add(payment.getAmount());
-                    default -> {
-                        // Pour les autres méthodes
-                        paymentsByMethod.merge(payment.getMethod(), payment.getAmount(), BigDecimal::add);
-                    }
+                    default -> paymentsByMethod.merge(payment.getMethod(), payment.getAmount(), BigDecimal::add);
                 }
                 totalSales = totalSales.add(payment.getAmount());
             } else if (payment.getStatus() == PaymentStatus.CREDIT) {
@@ -324,7 +332,6 @@ public class ShiftReportServiceImpl implements ShiftReportService {
             }
         }
 
-        // Compter les transactions
         long transactionCount = payments.stream()
                 .filter(p -> p.getStatus() == PaymentStatus.PAID)
                 .count();
@@ -332,12 +339,16 @@ public class ShiftReportServiceImpl implements ShiftReportService {
         return ShiftReportDetailResponse.builder()
                 .shiftReportId(shift.getShiftReportId())
                 .shiftNumber(shift.getShiftNumber())
-                .cashierId(shift.getCashier().getUserId())
-                .cashierName(shift.getCashier().getUsername())
-                .storeId(shift.getStore().getStoreId())
-                .storeName(shift.getStore().getName())
-                .startTime(shift.getStartTime())
-                .endTime(shift.getEndTime())
+                .cashierId(shift.getCashier() != null ? shift.getCashier().getUserId() : null)
+                .cashierName(shift.getCashier() != null ? shift.getCashier().getUsername() : null)
+                .storeId(shift.getStore() != null ? shift.getStore().getStoreId() : null)
+                .storeName(shift.getStore() != null ? shift.getStore().getName() : null)
+                // AJOUTÉ - infos caisse
+                .cashRegisterId(shift.getCashRegister() != null ? shift.getCashRegister().getCashRegisterId() : null)
+                .cashRegisterNumber(shift.getCashRegister() != null ? shift.getCashRegister().getRegisterNumber() : null)
+                .cashRegisterName(shift.getCashRegister() != null ? shift.getCashRegister().getName() : null)
+                .startTime(shift.getOpeningTime())
+                .endTime(shift.getClosingTime())
                 .openingBalance(shift.getOpeningBalance())
                 .closingBalance(shift.getClosingBalance())
                 .expectedBalance(shift.getExpectedBalance())
@@ -379,70 +390,34 @@ public class ShiftReportServiceImpl implements ShiftReportService {
         return paymentRepository.sumByMethodAndShift(PaymentMethod.CREDIT, shiftId);
     }
 
-    // Mettre à jour la méthode closeShift pour utiliser les paiements
-    @Transactional
-    @Override
-    public ShiftReportResponse closeShift(UUID shiftReportId, BigDecimal actualBalance, String notes) {
-        ShiftReport shift = shiftReportRepository.findById(shiftReportId)
-                .orElseThrow(() -> new NotFoundException("Shift non trouvé"));
-
-        if (shift.isClosed()) {
-            throw new BadRequestException("Le shift est déjà fermé");
-        }
-
-        // Calculer les totaux à partir des paiements
-        BigDecimal totalSales = calculateTotalSalesFromPayments(shiftReportId);
-        BigDecimal totalRefunds = shift.getTotalRefunds();
-
-        // Calculer le solde attendu
-        BigDecimal expectedBalance = shift.getOpeningBalance()
-                .add(totalSales)
-                .subtract(totalRefunds);
-
-        // Définir le solde de clôture (si actualBalance est null, utiliser expectedBalance)
-        BigDecimal closingBalance = actualBalance != null ? actualBalance : expectedBalance;
-
-        // Calculer l'écart
-        BigDecimal discrepancy = closingBalance.subtract(expectedBalance);
-
-        // Mettre à jour le shift
-        shift.setClosingBalance(closingBalance);
-        shift.setActualBalance(closingBalance);
-        shift.setExpectedBalance(expectedBalance);
-        shift.setDiscrepancy(discrepancy);
-        shift.setTotalSales(totalSales);
-        shift.setNetSales(totalSales.subtract(totalRefunds));
-        shift.setTotalTransactions(countTransactions(shiftReportId));
-
-        if (notes != null) {
-            String existingNotes = shift.getNotes() != null ? shift.getNotes() + "\n" : "";
-            shift.setNotes(existingNotes + "Fermeture: " + notes);
-        }
-
-        shift.closeShift();
-
-        ShiftReport updatedShift = shiftReportRepository.save(shift);
-        return shiftReportMapper.toResponse(updatedShift);
-    }
-
     private BigDecimal calculateTotalSalesFromPayments(UUID shiftId) {
         BigDecimal total = BigDecimal.ZERO;
-
-        // Somme des paiements CASH, MOBILE_MONEY, CARD (statut PAID)
         total = total.add(paymentRepository.sumByMethodAndShift(PaymentMethod.CASH, shiftId));
         total = total.add(paymentRepository.sumByMethodAndShift(PaymentMethod.MOBILE_MONEY, shiftId));
         total = total.add(paymentRepository.sumByMethodAndShift(PaymentMethod.CREDIT_CARD, shiftId));
         total = total.add(paymentRepository.sumByMethodAndShift(PaymentMethod.BANK_TRANSFER, shiftId));
         total = total.add(paymentRepository.sumByMethodAndShift(PaymentMethod.CHECK, shiftId));
         total = total.add(paymentRepository.sumByMethodAndShift(PaymentMethod.LOYALTY_POINTS, shiftId));
-
         return total;
     }
 
     private Integer countTransactions(UUID shiftId) {
         return Math.toIntExact(paymentRepository.countByShiftReport_ShiftReportIdAndStatus(
-                shiftId,
-                PaymentMethod.CASH));
+                shiftId, PaymentStatus.PAID));
     }
 
+    private String generateShiftNumber() {
+        String prefix = "SHIFT";
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String random = String.valueOf((int) (Math.random() * 1000));
+        String substring = timestamp.substring(timestamp.length() - 6);
+        String shiftNumber = prefix +   substring + random;
+
+        while (shiftReportRepository.findByShiftNumber(shiftNumber).isPresent()) {
+            random = String.valueOf((int) (Math.random() * 1000));
+            shiftNumber = prefix + substring + random;
+        }
+
+        return shiftNumber;
+    }
 }

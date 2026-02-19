@@ -29,12 +29,12 @@ public interface ShiftReportRepository extends JpaRepository<ShiftReport, UUID> 
     @Query("SELECT sr FROM ShiftReport sr WHERE sr.store.storeId = :storeId AND sr.status = 'OPEN'")
     List<ShiftReport> findOpenShiftsByStore(@Param("storeId") UUID storeId);
 
-    @Query("SELECT sr FROM ShiftReport sr WHERE sr.startTime BETWEEN :startDate AND :endDate")
+    @Query("SELECT sr FROM ShiftReport sr WHERE sr.openingTime BETWEEN :startDate AND :endDate")
     List<ShiftReport> findByDateRange(
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate);
 
-    @Query("SELECT sr FROM ShiftReport sr WHERE sr.store.storeId = :storeId AND sr.startTime BETWEEN :startDate AND :endDate")
+    @Query("SELECT sr FROM ShiftReport sr WHERE sr.store.storeId = :storeId AND sr.openingTime BETWEEN :startDate AND :endDate")
     List<ShiftReport> findByStoreAndDateRange(
             @Param("storeId") UUID storeId,
             @Param("startDate") LocalDateTime startDate,
@@ -45,4 +45,17 @@ public interface ShiftReportRepository extends JpaRepository<ShiftReport, UUID> 
 
     @Query("SELECT COALESCE(SUM(sr.totalRefunds), 0) FROM ShiftReport sr WHERE sr.store.storeId = :storeId AND sr.status = 'CLOSED'")
     Double getTotalRefundsByStore(@Param("storeId") UUID storeId);
+
+
+
+    //new methods for cash register
+
+    // AJOUTÉ
+    List<ShiftReport> findByCashRegister_CashRegisterId(UUID cashRegisterId);
+
+    // AJOUTÉ
+    @Query("SELECT s FROM ShiftReport s WHERE s.cashRegister.cashRegisterId = :cashRegisterId AND s.status = 'OPEN'")
+    Optional<ShiftReport> findOpenShiftByCashRegister(@Param("cashRegisterId") UUID cashRegisterId);
+
+
 }

@@ -176,6 +176,10 @@ public class Product {
         return null;
     }
 
+    public void setStockInStore(int newQuantity) {
+
+    }
+
     /**
      * Sync the quantity field from inventories.
      * Call this if you need to keep the quantity column in sync.

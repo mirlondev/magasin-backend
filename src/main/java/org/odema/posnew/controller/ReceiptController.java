@@ -19,6 +19,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -32,25 +33,7 @@ public class ReceiptController {
 
     private final ReceiptService receiptService;
 
-    @PostMapping("/order/{orderId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
-    @Operation(
-            summary = "Générer un ticket pour une commande",
-            description = "Génère un ticket unique pour une commande. Un seul ticket par commande."
-    )
-    public ResponseEntity<ReceiptResponse> generateReceipt(
-            @Parameter(description = "ID de la commande")
-            @PathVariable UUID orderId,
 
-            @Parameter(description = "Type de ticket (SALE par défaut)")
-            @RequestParam(required = false, defaultValue = "SALE") ReceiptType type
-    ) throws IOException {
-        log.info("Génération ticket pour commande {} - Type: {}", orderId, type);
-
-        ReceiptResponse response = receiptService.generateReceipt(orderId, type);
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
 
     @GetMapping("/{receiptId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
@@ -110,33 +93,6 @@ public class ReceiptController {
 
         return ResponseEntity.ok(response);
     }
-
-//    @GetMapping("/{receiptId}/pdf")
-//    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
-//    @Operation(
-//            summary = "Télécharger le PDF du ticket",
-//            description = "Télécharge le fichier PDF du ticket"
-//    )
-//    public ResponseEntity<byte[]> downloadReceiptPdf(
-//            @Parameter(description = "ID du ticket")
-//            @PathVariable UUID receiptId
-//    ) {
-//        log.debug("Téléchargement PDF ticket ID: {}", receiptId);
-//
-//        try {
-//            byte[] pdfBytes = receiptService.generateReceiptPdf(receiptId);
-//
-//            HttpHeaders headers = new HttpHeaders();
-//            headers.setContentType(MediaType.APPLICATION_PDF);
-//            headers.setContentDispositionFormData("attachment", "ticket_" + receiptId + ".pdf");
-//
-//            return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
-//
-//        } catch (Exception e) {
-//            log.error("Erreur téléchargement PDF", e);
-//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-//        }
-//    }
 
     @GetMapping("/{receiptId}/pdf")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER')")
@@ -268,79 +224,108 @@ public class ReceiptController {
         return ResponseEntity.ok(receipts);
     }
 
-    // ========== TICKETS SPÉCIAUX ==========
 
+
+
+
+
+    //new method
+
+    @PostMapping("/order/{orderId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    public ResponseEntity<ReceiptResponse> generateReceipt(
+            @PathVariable UUID orderId,
+            @RequestParam(required = false, defaultValue = "SALE") ReceiptType type
+    ) {  // ✅ plus de throws IOException
+        log.info("Génération ticket pour commande {} - Type: {}", orderId, type);
+        ReceiptResponse response = receiptService.generateReceipt(orderId, type);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    // ✅ FIX 3 : ajouter les endpoints manquants pour les nouvelles méthodes du service
+    @PostMapping("/order/{orderId}/payment-received")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    @Operation(summary = "Générer un reçu de paiement reçu (crédit)")
+    public ResponseEntity<ReceiptResponse> generatePaymentReceivedReceipt(
+            @PathVariable UUID orderId,
+            @RequestParam BigDecimal amount,
+            @RequestParam(required = false) String notes
+    ) {
+        log.info("Génération reçu paiement reçu commande {} - Montant: {}", orderId, amount);
+        ReceiptResponse response = receiptService.generatePaymentReceivedReceipt(
+                orderId, amount, notes
+        );
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/{receiptId}/void-receipt")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "Générer un ticket d'annulation VOID")
+    public ResponseEntity<ReceiptResponse> generateVoidReceipt(
+            @PathVariable UUID receiptId,
+            @RequestParam String reason
+    ) {
+        log.warn("Génération ticket VOID pour receipt {} - Raison: {}", receiptId, reason);
+        ReceiptResponse response = receiptService.generateVoidReceipt(receiptId, reason);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @PostMapping("/order/{orderId}/delivery-note")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    @Operation(summary = "Générer un bon de livraison (ticket)")
+    public ResponseEntity<ReceiptResponse> generateDeliveryNoteReceipt(
+            @PathVariable UUID orderId
+    ) {
+        log.info("Génération bon de livraison (ticket) commande {}", orderId);
+        ReceiptResponse response = receiptService.generateDeliveryNoteReceipt(orderId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    // ✅ FIX 4 : supprimer throws IOException sur les tickets shift
     @PostMapping("/shift/{shiftReportId}/opening")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
-    @Operation(summary = "Générer un ticket d'ouverture de caisse")
     public ResponseEntity<ReceiptResponse> generateShiftOpeningReceipt(
-            @Parameter(description = "ID de la session")
             @PathVariable UUID shiftReportId
-    ) throws IOException {
+    ) {  // ✅ plus de throws IOException
         log.info("Génération ticket ouverture caisse session: {}", shiftReportId);
-
         ReceiptResponse response = receiptService.generateShiftOpeningReceipt(shiftReportId);
-
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/shift/{shiftReportId}/closing")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
-    @Operation(summary = "Générer un ticket de fermeture de caisse")
     public ResponseEntity<ReceiptResponse> generateShiftClosingReceipt(
-            @Parameter(description = "ID de la session")
             @PathVariable UUID shiftReportId
-    ) throws IOException {
+    ) {  // ✅ plus de throws IOException
         log.info("Génération ticket fermeture caisse session: {}", shiftReportId);
-
         ReceiptResponse response = receiptService.generateShiftClosingReceipt(shiftReportId);
-
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/shift/{shiftReportId}/cash-in")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
-    @Operation(summary = "Générer un ticket d'entrée d'argent")
     public ResponseEntity<ReceiptResponse> generateCashInReceipt(
-            @Parameter(description = "ID de la session")
             @PathVariable UUID shiftReportId,
-
-            @Parameter(description = "Montant")
             @RequestParam Double amount,
-
-            @Parameter(description = "Raison")
             @RequestParam String reason
-    ) throws IOException {
-        log.info("Génération ticket entrée argent session: {} - Montant: {}",
-                shiftReportId, amount);
-
-        ReceiptResponse response = receiptService.generateCashInReceipt(
-                shiftReportId, amount, reason
-        );
-
+    ) {  // ✅ plus de throws IOException
+        ReceiptResponse response = receiptService.generateCashInReceipt(shiftReportId, amount, reason);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/shift/{shiftReportId}/cash-out")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
-    @Operation(summary = "Générer un ticket de sortie d'argent")
     public ResponseEntity<ReceiptResponse> generateCashOutReceipt(
-            @Parameter(description = "ID de la session")
             @PathVariable UUID shiftReportId,
-
-            @Parameter(description = "Montant")
             @RequestParam Double amount,
-
-            @Parameter(description = "Raison")
             @RequestParam String reason
-    ) throws IOException {
-        log.info("Génération ticket sortie argent session: {} - Montant: {}",
-                shiftReportId, amount);
-
-        ReceiptResponse response = receiptService.generateCashOutReceipt(
-                shiftReportId, amount, reason
-        );
-
+    ) {  // ✅ plus de throws IOException
+        ReceiptResponse response = receiptService.generateCashOutReceipt(shiftReportId, amount, reason);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
+
+    //new
+
+
+
 }

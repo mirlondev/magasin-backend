@@ -30,22 +30,7 @@ public class InvoiceController {
 
     private final InvoiceService invoiceService;
 
-    @PostMapping("/order/{orderId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'SALES')")
-    @Operation(
-            summary = "Générer une facture pour une commande",
-            description = "Génère une facture unique (crédit) ou proforma selon le type de commande"
-    )
-    public ResponseEntity<InvoiceResponse> generateInvoice(
-            @Parameter(description = "ID de la commande")
-            @PathVariable UUID orderId
-    ) throws DocumentException, IOException {
-        log.info("Génération facture pour commande: {}", orderId);
 
-        InvoiceResponse response = invoiceService.generateInvoice(orderId);
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
 
     @GetMapping("/{invoiceId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER', 'SALES')")
@@ -104,31 +89,6 @@ public class InvoiceController {
         InvoiceResponse response = invoiceService.reprintInvoice(invoiceId);
 
         return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/{invoiceId}/pdf")
-    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'MANAGER', 'SALES')")
-    @Operation(summary = "Télécharger le PDF de la facture")
-    public ResponseEntity<byte[]> downloadInvoicePdf(
-            @Parameter(description = "ID de la facture")
-            @PathVariable UUID invoiceId
-    ) {
-        log.debug("Téléchargement PDF facture ID: {}", invoiceId);
-
-        try {
-            byte[] pdfBytes = invoiceService.generateInvoicePdf(invoiceId);
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_PDF);
-            headers.setContentDispositionFormData("attachment",
-                    "facture_" + invoiceId + ".pdf");
-
-            return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
-
-        } catch (Exception e) {
-            log.error("Erreur téléchargement PDF", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
     }
 
     @PutMapping("/{invoiceId}/status")
@@ -325,15 +285,100 @@ public class InvoiceController {
         }
     }
 
-    // Optional: Force regeneration endpoint
+
+    //thew
+
+    @PostMapping("/order/{orderId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'SALES')")
+    public ResponseEntity<InvoiceResponse> generateInvoice(
+            @PathVariable UUID orderId
+    ) {  // ✅ plus de throws
+        log.info("Génération facture pour commande: {}", orderId);
+        InvoiceResponse response = invoiceService.generateInvoice(orderId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    // ✅ FIX 2 : regenerateInvoicePdf() — ne pas retourner null
     @PostMapping("/order/{orderId}/pdf/regenerate")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "Forcer la régénération du PDF d'une facture")
     public ResponseEntity<byte[]> regenerateInvoicePdf(@PathVariable UUID orderId) {
         try {
             byte[] pdfBytes = invoiceService.regenerateInvoicePdf(orderId);
-            // ... return PDF
+
+            InvoiceResponse invoice = invoiceService.getInvoiceByOrder(orderId);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_PDF);
+            headers.setContentDisposition(ContentDisposition.builder("attachment")
+                    .filename(invoice.invoiceNumber() + ".pdf")
+                    .build());
+            headers.setContentLength(pdfBytes.length);
+
+            return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
+
+        } catch (NotFoundException e) {
+            return ResponseEntity.notFound().build();
         } catch (Exception e) {
-            // ... handle error
+            log.error("Erreur régénération PDF facture commande {}", orderId, e);
+            return ResponseEntity.internalServerError().build();
         }
-        return null;
+    }
+
+    // ✅ FIX 3 : ajouter endpoints manquants pour les types de factures spéciaux
+    @GetMapping("/order/{orderId}/proforma/pdf")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER', 'SALES')")
+    @Operation(summary = "Télécharger le PDF proforma d'une commande")
+    public ResponseEntity<byte[]> downloadProformaPdf(@PathVariable UUID orderId) {
+        try {
+            byte[] pdfBytes = invoiceService.getOrGenerateProformaPdf(orderId);
+            return buildPdfResponse(pdfBytes, "proforma_" + orderId + ".pdf");
+        } catch (NotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            log.error("Erreur téléchargement PDF proforma", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @GetMapping("/order/{orderId}/credit-note/pdf")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @Operation(summary = "Télécharger le PDF avoir d'une commande")
+    public ResponseEntity<byte[]> downloadCreditNotePdf(@PathVariable UUID orderId) {
+        try {
+            byte[] pdfBytes = invoiceService.getOrGenerateCreditNotePdf(orderId);
+            return buildPdfResponse(pdfBytes, "avoir_" + orderId + ".pdf");
+        } catch (NotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            log.error("Erreur téléchargement PDF avoir", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @GetMapping("/order/{orderId}/delivery-note/pdf")
+    @PreAuthorize("hasAnyRole('ADMIN', 'CASHIER')")
+    @Operation(summary = "Télécharger le PDF bon de livraison d'une commande")
+    public ResponseEntity<byte[]> downloadDeliveryNotePdf(@PathVariable UUID orderId) {
+        try {
+            byte[] pdfBytes = invoiceService.getOrGenerateDeliveryNotePdf(orderId);
+            return buildPdfResponse(pdfBytes, "bon_livraison_" + orderId + ".pdf");
+        } catch (NotFoundException e) {
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            log.error("Erreur téléchargement PDF bon de livraison", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    // ✅ Méthode utilitaire privée — évite la duplication des headers PDF
+    private ResponseEntity<byte[]> buildPdfResponse(byte[] pdfBytes, String filename) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDisposition(ContentDisposition.builder("inline")
+                .filename(filename)
+                .build());
+        headers.setContentLength(pdfBytes.length);
+        return new ResponseEntity<>(pdfBytes, headers, HttpStatus.OK);
     }
 }

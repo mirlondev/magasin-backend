@@ -1,24 +1,35 @@
 package org.odema.posnew.dto.request;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import org.odema.posnew.entity.enums.RefundMethod;
 import org.odema.posnew.entity.enums.RefundType;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
+/**
+ * DTO pour la création d'un remboursement.
+ */
 public record RefundRequest(
-        @NotNull(message = "La commande est obligatoire")
         UUID orderId,
-
-        @NotNull(message = "Le montant du remboursement est obligatoire")
-        BigDecimal refundAmount,
-
         RefundType refundType,
-
-        @NotBlank(message = "La raison du remboursement est obligatoire")
+        RefundMethod refundMethod,
         String reason,
-
-        String notes
+        String notes,
+        List<RefundItemRequest> items
 ) {
+    /**
+     * Constructeur compact avec validation
+     */
+    public RefundRequest {
+        if (orderId == null) {
+            throw new IllegalArgumentException("L'ID de commande est obligatoire");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("La raison du remboursement est obligatoire");
+        }
+        if (refundType == null) {
+            refundType = RefundType.FULL;
+        }
+    }
 }

@@ -1,6 +1,7 @@
 package org.odema.posnew.service.impl;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.odema.posnew.design.event.OrderCancelledEvent;
 import org.odema.posnew.design.event.OrderCompletedEvent;
 import org.odema.posnew.design.event.OrderCreatedEvent;
@@ -275,7 +276,7 @@ public class OrderServiceImpl extends OrderServiceTemplate implements OrderServi
 
         // 7. Update shift report
         if (payment.isActualPayment()) {
-            shiftReport.addSale(payment.getAmount());
+            shiftReport.addSale(payment.getAmount(),payment.getMethod());
             shiftReportRepository.save(shiftReport);
         }
 
@@ -577,6 +578,11 @@ public class OrderServiceImpl extends OrderServiceTemplate implements OrderServi
 
     @Override
     public BigDecimal getTotalSalesByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate) {
+        return getBigDecimal(storeId, startDate, endDate, orderRepository);
+    }
+
+    @NonNull
+    public static BigDecimal getBigDecimal(UUID storeId, LocalDateTime startDate, LocalDateTime endDate, OrderRepository orderRepository) {
         if (startDate == null || endDate == null) {
             startDate = LocalDateTime.now().minusDays(30);
             endDate = LocalDateTime.now();
@@ -588,6 +594,11 @@ public class OrderServiceImpl extends OrderServiceTemplate implements OrderServi
 
     @Override
     public Integer getOrderCountByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate) {
+        return getInteger(storeId, startDate, endDate, orderRepository);
+    }
+
+    @NonNull
+    public static Integer getInteger(UUID storeId, LocalDateTime startDate, LocalDateTime endDate, OrderRepository orderRepository) {
         if (startDate == null || endDate == null) {
             startDate = LocalDateTime.now().minusDays(30);
             endDate = LocalDateTime.now();

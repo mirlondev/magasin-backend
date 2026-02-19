@@ -111,7 +111,7 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
             "AND p.status = org.odema.posnew.entity.enums.PaymentStatus.PAID " +
             "AND p.isActive = true")
     Long countByShiftReport_ShiftReportIdAndStatus(@Param("shiftId") UUID shiftId,
-                               @Param("method") PaymentMethod method);
+                               @Param("method") PaymentStatus method);
 
     /**
      * Total des paiements cash pour un store sur une période

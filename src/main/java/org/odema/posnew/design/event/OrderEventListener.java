@@ -8,6 +8,9 @@ import org.odema.posnew.design.strategy.SaleStrategy;
 import org.odema.posnew.entity.Order;
 import org.odema.posnew.entity.enums.DocumentType;
 import org.odema.posnew.entity.enums.OrderType;
+import org.odema.posnew.entity.enums.ReceiptType;
+import org.odema.posnew.service.InvoiceService;
+import org.odema.posnew.service.ReceiptService;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
@@ -22,6 +25,8 @@ public class OrderEventListener {
 
     private final DocumentGenerationFacade documentFacade;
     private final SaleStrategyFactory strategyFactory;
+    private  final InvoiceService invoiceService;
+    private    final ReceiptService receiptService;
 
     /**
      * Génère automatiquement le document approprié lors de la création
@@ -33,29 +38,21 @@ public class OrderEventListener {
         log.info("Événement: Commande créée - {}", order.getOrderNumber());
 
         try {
-            // Déterminer type de document selon stratégie
             SaleStrategy strategy = strategyFactory.getStrategy(
-                    order.getOrderType() != null
-                            ? order.getOrderType()
-                            : OrderType.POS_SALE
+                    order.getOrderType() != null ? order.getOrderType() : OrderType.POS_SALE
             );
-
             DocumentType docType = strategy.getDocumentType();
 
-            // Générer le document de façon asynchrone
-            documentFacade.generateAndSaveDocument(
-                    order, docType, "orders/documents"
-            );
+            switch (docType) {
+                case INVOICE, PROFORMA -> invoiceService.generateInvoice(order.getOrderId());
+                case TICKET, RECEIPT -> receiptService.generateReceipt(order.getOrderId(), ReceiptType.SALE);
+            }
 
-            log.info("Document {} généré pour commande {}",
-                    docType, order.getOrderNumber());
-
+            log.info("Document {} généré pour commande {}", docType, order.getOrderNumber());
         } catch (Exception e) {
             log.error("Erreur génération document automatique", e);
-            // Ne pas bloquer la transaction principale
         }
     }
-
     /**
      * Actions lors de la complétion d'une commande
      */

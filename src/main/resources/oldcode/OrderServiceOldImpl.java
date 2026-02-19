@@ -386,15 +386,7 @@ public class OrderServiceOldImpl  {
 
     @Override
     public BigDecimal getTotalSalesByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate) {
-        if (startDate == null || endDate == null) {
-            startDate = LocalDateTime.now().minusDays(30);
-            endDate = LocalDateTime.now();
-        }
-
-        BigDecimal total = orderRepository.getTotalSalesByStoreAndDateRange(
-                storeId, startDate, endDate);
-
-        return total != null ? total : BigDecimal.ZERO;
+        return getBigDecimal(storeId, startDate, endDate, orderRepository);
     }
 
     @Override
@@ -416,15 +408,7 @@ public class OrderServiceOldImpl  {
 
     @Override
     public Integer getOrderCountByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate) {
-        if (startDate == null || endDate == null) {
-            startDate = LocalDateTime.now().minusDays(30);
-            endDate = LocalDateTime.now();
-        }
-
-        Integer count = orderRepository.getOrderCountByStoreAndDateRange(
-                storeId, startDate, endDate);
-
-        return count != null ? count : 0;
+        return getInteger(storeId, startDate, endDate, orderRepository);
     }
 
     @Override

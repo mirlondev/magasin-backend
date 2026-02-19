@@ -16,6 +16,10 @@ public record ShiftReportResponse(
         UUID storeId,
         String storeName,
 
+        UUID cashRegisterId,        // AJOUTÉ
+        String cashRegisterNumber,  // AJOUTÉ
+        String cashRegisterName,    // AJOUTÉ
+
         LocalDateTime startTime,
         LocalDateTime endTime,
 
