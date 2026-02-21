@@ -1,9 +1,11 @@
-package org.odema.posnew.application.dto;
+package org.odema.posnew.application.dto.request;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.time.LocalDate;
-import java.util.regex.Pattern;
 
 public record CreateCustomerRequest(
         @NotBlank @Size(max = 100) String firstName,

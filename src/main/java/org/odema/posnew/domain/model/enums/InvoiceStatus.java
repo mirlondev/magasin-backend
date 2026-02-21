@@ -1,5 +1,8 @@
-package org.odema.posnew.domain.enums;
+package org.odema.posnew.domain.model.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum InvoiceStatus {
     DRAFT("Brouillon"),
     ISSUED("Émise"),
@@ -14,7 +17,4 @@ public enum InvoiceStatus {
         this.label = label;
     }
 
-    public String getLabel() {
-        return label;
-    }
 }

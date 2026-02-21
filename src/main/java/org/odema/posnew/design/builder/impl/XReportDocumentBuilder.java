@@ -3,8 +3,7 @@ package org.odema.posnew.design.builder.impl;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.entity.ShiftReport;
-import org.odema.posnew.entity.User;
+import org.odema.posnew.domain.model.ShiftReport;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -102,14 +101,48 @@ public class XReportDocumentBuilder extends AbstractPdfDocumentBuilder {
                 .append("<table class=\"info-table\">");
 
         if (shiftReport != null) {
-            html.append(infoRow("Session", shiftReport.getShiftReportId() != null
-                    ? shiftReport.getShiftReportId().toString().substring(0, 8).toUpperCase() : "&#8212;"))
-                    .append(infoRow("Caisse", shiftReport.getStore() != null
-                            ? esc(shiftReport.getStore().getName()) : "&#8212;"))
-                    .append(infoRow("Caissier", shiftReport.getCashier() != null
-                            ? esc(shiftReport.getCashier().getUsername()) : "&#8212;"))
+            // ID Session (8 premiers caractères)
+            String sessionId = shiftReport.getShiftReportId() != null
+                    ? shiftReport.getShiftReportId().toString().substring(0, 8).toUpperCase()
+                    : "&#8212;";
+
+            // Numéro de session (nouveau champ)
+            String shiftNumber = shiftReport.getShiftNumber() != null
+                    ? shiftReport.getShiftNumber()
+                    : sessionId;
+
+            // Caisse
+            String registerName = "&#8212;";
+            if (shiftReport.getCashRegister() != null) {
+                registerName = shiftReport.getCashRegister().getName();
+                if (shiftReport.getCashRegister().getRegisterNumber() != null) {
+                    registerName += " (" + shiftReport.getCashRegister().getRegisterNumber() + ")";
+                }
+            }
+
+            // Caissier
+            String cashierName = "&#8212;";
+            if (shiftReport.getCashier() != null) {
+                cashierName = shiftReport.getCashier().getUsername();
+                if (shiftReport.getCashier().getFullName() != null) {
+                    cashierName += " - " + shiftReport.getCashier().getFullName();
+                }
+            }
+
+            // Store
+            String storeName = "&#8212;";
+            if (shiftReport.getStore() != null) {
+                storeName = shiftReport.getStore().getName();
+            }
+
+            html.append(infoRow("Session", shiftNumber))
+                    .append(infoRow("Caisse", registerName))
+                    .append(infoRow("Magasin", storeName))
+                    .append(infoRow("Caissier", cashierName))
                     .append(infoRow("Ouverture", shiftReport.getOpeningTime() != null
                             ? shiftReport.getOpeningTime().format(FMT_DT) : "&#8212;"))
+                    .append(infoRow("Statut", shiftReport.getStatus() != null
+                            ? shiftReport.getStatus().getLabel() : "&#8212;"))
                     .append(infoRow("Rapport g&#233;n&#233;r&#233;", java.time.LocalDateTime.now().format(FMT_DT)));
         } else {
             html.append(infoRow("Session", "&#8212;"))
@@ -132,23 +165,23 @@ public class XReportDocumentBuilder extends AbstractPdfDocumentBuilder {
         if (shiftReport != null) {
             // Espèces
             html.append(paymentRow("Esp&#232;ces",
-                    shiftReport.getCashSales() != null ? shiftReport.getCashSales() : BigDecimal.ZERO,
-                    shiftReport.getCashSalesCount() != 0 ? shiftReport.getCashSalesCount() : 0));
+                    shiftReport.getCashSales(),
+                    shiftReport.getCashSalesCount()));
 
             // Carte bancaire
             html.append(paymentRow("Carte bancaire",
-                    shiftReport.getCardSales() != null ? shiftReport.getCardSales() : BigDecimal.ZERO,
-                    shiftReport.getCardSalesCount() != 0 ? shiftReport.getCardSalesCount() : 0));
+                    shiftReport.getCardSales(),
+                    shiftReport.getCardSalesCount()));
 
             // Mobile Money
             html.append(paymentRow("Mobile Money",
-                    shiftReport.getMobileMoneySales() != null ? shiftReport.getMobileMoneySales() : BigDecimal.ZERO,
-                    shiftReport.getMobileMoneySalesCount() != 0 ? shiftReport.getMobileMoneySalesCount() : 0));
+                    shiftReport.getMobileMoneySales(),
+                    shiftReport.getMobileMoneySalesCount()));
 
             // Crédit
             html.append(paymentRow("Cr&#233;dit",
-                    shiftReport.getCreditSales() != null ? shiftReport.getCreditSales() : BigDecimal.ZERO,
-                    shiftReport.getCreditSalesCount() != 0 ? shiftReport.getCreditSalesCount() : 0));
+                    shiftReport.getCreditSales(),
+                    shiftReport.getCreditSalesCount()));
         }
 
         html.append("</table>")
@@ -162,7 +195,8 @@ public class XReportDocumentBuilder extends AbstractPdfDocumentBuilder {
             html.append(movementRow("Fond de caisse initial", shiftReport.getOpeningBalance(), true))
                     .append(movementRow("Entr&#233;es de caisse", shiftReport.getTotalCashIn(), true))
                     .append(movementRow("Sorties de caisse", shiftReport.getTotalCashOut(), false))
-                    .append(movementRow("Remboursements", shiftReport.getTotalRefunds(), false));
+                    .append(movementRow("Remboursements", shiftReport.getTotalRefunds(), false))
+                    .append(movementRow("Annulations", shiftReport.getTotalCancellations(), false));
         }
 
         html.append("</table>")
@@ -178,33 +212,31 @@ public class XReportDocumentBuilder extends AbstractPdfDocumentBuilder {
 
         if (shiftReport != null) {
             // Total des ventes
-            BigDecimal totalSales = shiftReport.getTotalSales() != null ? shiftReport.getTotalSales() : BigDecimal.ZERO;
-            html.append(summaryRow("TOTAL VENTES", totalSales, "total-sales"));
+            html.append(summaryRow("TOTAL VENTES", shiftReport.getTotalSales(), "total-sales"));
+
+            // Ventes Nettes (nouveau)
+            html.append(summaryRow("Ventes Nettes", shiftReport.getNetSales(), "net-sales"));
 
             // Nombre de transactions
-            Integer totalTransactions = shiftReport.getTotalTransactions() != null ? shiftReport.getTotalTransactions() : 0;
-            html.append(summaryRow("Nombre de transactions", totalTransactions + "", "count-row"));
+            html.append(summaryRow("Nombre de transactions", String.valueOf(shiftReport.getTotalTransactions()), "count-row"));
 
             // Ticket moyen
-            BigDecimal avgTicket = totalTransactions > 0
-                    ? totalSales.divide(new BigDecimal(totalTransactions), 0, BigDecimal.ROUND_HALF_UP)
+            BigDecimal avgTicket = shiftReport.getTotalTransactions() > 0
+                    ? shiftReport.getTotalSales().divide(new BigDecimal(shiftReport.getTotalTransactions()), 0, BigDecimal.ROUND_HALF_UP)
                     : BigDecimal.ZERO;
             html.append(summaryRow("Ticket moyen", avgTicket, "avg-row"));
 
             html.append("<tr class=\"total-sep\"><td colspan=\"2\">&#160;</td></tr>");
 
             // Solde théorique caisse
-            BigDecimal expectedBalance = shiftReport.getExpectedBalance() != null
-                    ? shiftReport.getExpectedBalance() : BigDecimal.ZERO;
-            html.append(summaryRow("Solde th&#233;orique caisse", expectedBalance, "expected-balance"));
+            html.append(summaryRow("Solde th&#233;orique caisse", shiftReport.getExpectedBalance(), "expected-balance"));
 
             // Solde réel (si saisi)
-            if (shiftReport.getActualBalance() != null) {
+            if (shiftReport.getActualBalance() != null && shiftReport.getActualBalance().compareTo(BigDecimal.ZERO) > 0) {
                 html.append(summaryRow("Solde r&#233;el caisse", shiftReport.getActualBalance(), "actual-balance"));
 
                 // Écart
-                BigDecimal difference = shiftReport.getDifference() != null
-                        ? shiftReport.getDifference() : BigDecimal.ZERO;
+                BigDecimal difference = shiftReport.getDifference();
                 String diffClass = difference.compareTo(BigDecimal.ZERO) >= 0 ? "positive-diff" : "negative-diff";
                 html.append(summaryRow("&#201;cart", difference, diffClass));
             }
@@ -239,7 +271,6 @@ public class XReportDocumentBuilder extends AbstractPdfDocumentBuilder {
                 .append("Document g&#233;n&#233;r&#233; automatiquement &#8212; ")
                 .append(java.time.LocalDateTime.now().format(FMT_DT))
                 .append("</div>")
-
                 .append("<div class=\"cut-line\">- - - - - - &#9988; - - - - - -</div>")
                 .append("</body></html>");
         return this;
@@ -256,7 +287,7 @@ public class XReportDocumentBuilder extends AbstractPdfDocumentBuilder {
             log.info("Rapport X PDF g&#233;n&#233;r&#233; ({} octets)", baos.size());
             return baos.toByteArray();
         } catch (Exception e) {
-            log.error("Erreur g&#233;n&#233;ration rapport X PDF: {}", e.getMessage());
+            log.error("Erreur g&#233;n&#233;ration rapport X PDF: {}", e.getMessage(), e);
             throw new RuntimeException("&#201;chec g&#233;n&#233;ration rapport X PDF", e);
         }
     }
@@ -315,6 +346,7 @@ public class XReportDocumentBuilder extends AbstractPdfDocumentBuilder {
                         ".totals-table td:last-child { width: 45%; text-align: right; font-weight: bold; }" +
                         ".total-sep td { border-top: 1pt solid #3182ce; padding: 2pt 0 0; font-size: 2pt; color: transparent; }" +
                         ".total-sales { font-size: 10pt; color: #2b6cb0; }" +
+                        ".net-sales { font-size: 9pt; color: #285e61; background: #e6fffa; }" +
                         ".count-row { font-size: 7.5pt; color: #4a5568; }" +
                         ".avg-row { font-size: 8pt; color: #744210; background: #fffbeb; }" +
                         ".expected-balance { font-size: 9pt; color: #2f855a; background: #f0fff4; }" +

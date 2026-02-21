@@ -1,7 +1,7 @@
 package org.odema.posnew.application.service.impl;
 
 import lombok.extern.slf4j.Slf4j;
-import org.odema.posnew.application.service.FileStorageService;
+import org.odema.posnew.domain.service.FileStorageService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -61,7 +61,6 @@ public class FileStorageServiceImpl implements FileStorageService {
             throw new IOException("Format d'image non supporté ou taille excessive");
         }
 
-        // Vous pouvez ajouter ici du traitement d'image (redimensionnement, compression, etc.)
         return storeFile(imageFile, directory);
     }
 
@@ -137,6 +136,7 @@ public class FileStorageServiceImpl implements FileStorageService {
     public long getFileSize(MultipartFile file) {
         return file.getSize();
     }
+
     @Override
     public String storeFileFromBytes(byte[] fileBytes, String filename, String directory) throws IOException {
         Path targetLocation = getFilePath(filename, directory);
@@ -144,20 +144,19 @@ public class FileStorageServiceImpl implements FileStorageService {
         Files.write(targetLocation, fileBytes);
         return filename;
     }
-    private Path getFilePath(String filename, String directory) {
-        return Paths.get(storagePath).resolve(directory).resolve(filename).normalize();
-    }
-
 
     @Override
     public byte[] readFileAsBytes(String filename, String directory) throws IOException {
-        // ✅ Utiliser getFilePath pour respecter la structure: storagePath/directory/filename
         Path filePath = getFilePath(filename, directory);
 
         if (!Files.exists(filePath)) {
-            log.warn("Fichier PDF introuvable: {}", filePath.toAbsolutePath());
+            log.warn("Fichier introuvable: {}", filePath.toAbsolutePath());
             throw new IOException("Fichier introuvable: " + filePath);
         }
         return Files.readAllBytes(filePath);
+    }
+
+    private Path getFilePath(String filename, String directory) {
+        return Paths.get(storagePath).resolve(directory).resolve(filename).normalize();
     }
 }

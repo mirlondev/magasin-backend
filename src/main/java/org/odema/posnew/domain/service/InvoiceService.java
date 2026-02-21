@@ -1,7 +1,6 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
-import com.itextpdf.text.DocumentException;
-import org.odema.posnew.application.dto.response.InvoiceResponse;
+import org.odema.posnew.application.dto.InvoiceResponse;
 import org.springframework.core.io.Resource;
 
 import java.io.IOException;
@@ -17,15 +16,15 @@ public interface InvoiceService {
     InvoiceResponse convertProformaToSale(UUID proformaId);
 
     // ── PDF ──────────────────────────────────────────────
-    byte[] generateInvoicePdf(UUID invoiceId)                    throws IOException, DocumentException;
-    byte[] getOrGenerateInvoicePdf(UUID orderId)                 throws IOException, DocumentException;
-    byte[] regenerateInvoicePdf(UUID orderId)                    throws IOException, DocumentException;
-    byte[] getOrGenerateProformaPdf(UUID orderId)                throws IOException, DocumentException;
-    byte[] getOrGenerateCreditNotePdf(UUID orderId)              throws IOException, DocumentException;
-    byte[] getOrGenerateDeliveryNotePdf(UUID orderId)            throws IOException, DocumentException;
-    byte[] getOrGeneratePurchaseOrderPdf(UUID orderId)           throws IOException, DocumentException;
-    byte[] getOrGenerateQuotePdf(UUID orderId)                   throws IOException, DocumentException;
-    byte[] getOrGenerateCorrectedInvoicePdf(UUID orderId)        throws IOException, DocumentException;
+    byte[] generateInvoicePdf(UUID invoiceId)                    throws IOException;
+    byte[] getOrGenerateInvoicePdf(UUID orderId)                 throws IOException;
+    byte[] regenerateInvoicePdf(UUID orderId)                    throws IOException;
+    byte[] getOrGenerateProformaPdf(UUID orderId)                throws IOException;
+    byte[] getOrGenerateCreditNotePdf(UUID orderId)              throws IOException;
+    byte[] getOrGenerateDeliveryNotePdf(UUID orderId)            throws IOException;
+    byte[] getOrGeneratePurchaseOrderPdf(UUID orderId)           throws IOException;
+    byte[] getOrGenerateQuotePdf(UUID orderId)                   throws IOException;
+    byte[] getOrGenerateCorrectedInvoicePdf(UUID orderId)        throws IOException;
     Resource getInvoicePdfResource(UUID orderId)                 throws IOException;
     String getInvoicePdfUrl(UUID invoiceId);
 

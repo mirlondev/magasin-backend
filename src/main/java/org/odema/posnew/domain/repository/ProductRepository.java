@@ -1,4 +1,12 @@
-package org.odema.posnew.application.repository;
+package org.odema.posnew.domain.repository;
+
+import org.odema.posnew.domain.model.Product;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +41,8 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
             "AND i.quantity <= i.reorderPoint GROUP BY p")
     List<Product> findLowStockProducts();
 
+    @Query("SELECT p FROM Product p JOIN p.inventories i WHERE p.isActive = true " +
+            "AND i.quantity <= i.reorderPoint GROUP BY p")
     Page<Product> findLowStockProducts(Pageable pageable);
 
     @Query("SELECT p FROM Product p JOIN p.inventories i WHERE p.isActive = true " +

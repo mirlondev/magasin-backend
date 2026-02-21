@@ -1,4 +1,9 @@
 package org.odema.posnew.design.event;
 
-public class StockEvent {
+import org.springframework.context.ApplicationEvent;
+
+public abstract class StockEvent extends ApplicationEvent {
+    public StockEvent(Object source) {
+        super(source);
+    }
 }

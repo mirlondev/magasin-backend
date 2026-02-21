@@ -3,8 +3,8 @@ package org.odema.posnew.design.builder.impl;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.OrderItem;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.OrderItem;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -174,13 +174,13 @@ public class CancellationDocumentBuilder extends AbstractPdfDocumentBuilder {
         if (order != null) {
             html.append(totalRow("Sous-total HT", fmtCur(order.getSubtotal()), "strike"));
 
-            if (order.getTaxAmount() != null && order.getTaxAmount().compareTo(BigDecimal.ZERO) > 0) {
+        /*    if (order.getTaxAmount() != null && order.getTaxAmount().compareTo(BigDecimal.ZERO) > 0) {
                 String lbl = "TVA (" + (order.getTaxRate() != null ? order.getTaxRate() : "18") + "%)";
                 html.append(totalRow(lbl, fmtCur(order.getTaxAmount()), "strike"));
-            }
+            }*/
 
-            if (order.getDiscountAmount() != null && order.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0)
-                html.append(totalRow("Remise", "-" + fmtCur(order.getDiscountAmount()), "strike color-muted"));
+            if (order.getGlobalDiscountPercentage() != null && order.getGlobalDiscountAmount().compareTo(BigDecimal.ZERO) > 0)
+                html.append(totalRow("Remise", "-" + fmtCur(order.getGlobalDiscountAmount()), "strike color-muted"));
 
             html.append("<tr class=\"total-sep\"><td colspan=\"2\">&#160;</td></tr>")
                     .append("<tr class=\"total-cancelled\">")

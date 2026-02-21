@@ -9,18 +9,23 @@ public record ProductResponse(
         String name,
         String description,
         BigDecimal price,
-        Integer quantity,
+        Integer quantity, // Calculated from Inventory
+
         UUID categoryId,
         String categoryName,
-        String imageUrl,
 
-        String Filename,
+        String imageUrl,
+        String imageFilename,
         String sku,
         String barcode,
         Boolean inStock,
+
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
-        UUID storeId,
-        Boolean isActive ,
-        String storeName
-) {}
+
+        UUID storeId,    // Optional - for store-specific view
+        Boolean isActive,
+
+        String storeName // Optional - for store-specific view
+) {
+}

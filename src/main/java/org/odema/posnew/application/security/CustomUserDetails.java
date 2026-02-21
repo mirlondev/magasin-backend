@@ -1,7 +1,8 @@
-package org.odema.posnew.security;
+package org.odema.posnew.application.security;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.odema.posnew.domain.model.User;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;

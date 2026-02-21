@@ -1,22 +1,27 @@
-package org.odema.posnew.application.service.impl;
+package org.odema.posnew.application.serviceImpl;
 
 import lombok.RequiredArgsConstructor;
+
 import lombok.extern.slf4j.Slf4j;
-import org.odema.posnew.application.dto.request.PaymentRequest;
-import org.odema.posnew.application.dto.response.PaymentResponse;
-import org.odema.posnew.domain.enums_old.OrderStatus;
-import org.odema.posnew.domain.enums_old.PaymentMethod;
-import org.odema.posnew.domain.enums_old.PaymentStatus;
-import org.odema.posnew.domain.enums_old.UserRole;
 import org.odema.posnew.api.exception.BadRequestException;
 import org.odema.posnew.api.exception.NotFoundException;
 import org.odema.posnew.api.exception.UnauthorizedException;
+import org.odema.posnew.application.dto.request.PaymentRequest;
+import org.odema.posnew.application.dto.response.PaymentResponse;
 import org.odema.posnew.application.mapper.PaymentMapper;
-import org.odema.posnew.repository.OrderRepository;
-import org.odema.posnew.repository.PaymentRepository;
-import org.odema.posnew.repository.ShiftReportRepository;
-import org.odema.posnew.repository.UserRepository;
-import org.odema.posnew.application.service.PaymentService;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.Payment;
+import org.odema.posnew.domain.model.ShiftReport;
+import org.odema.posnew.domain.model.User;
+import org.odema.posnew.domain.model.enums.OrderStatus;
+import org.odema.posnew.domain.model.enums.PaymentMethod;
+import org.odema.posnew.domain.model.enums.PaymentStatus;
+import org.odema.posnew.domain.model.enums.UserRole;
+import org.odema.posnew.domain.repository.OrderRepository;
+import org.odema.posnew.domain.repository.PaymentRepository;
+import org.odema.posnew.domain.repository.ShiftReportRepository;
+import org.odema.posnew.domain.repository.UserRepository;
+import org.odema.posnew.domain.service.PaymentService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -152,7 +157,7 @@ public class PaymentServiceImpl implements PaymentService {
         }
 
         // Annuler le paiement
-        payment.cancel();
+        payment.cancel("Payment annule pour raison inconnue");
         paymentRepository.save(payment);
 
         // Mettre à jour le shift report si nécessaire
@@ -161,14 +166,15 @@ public class PaymentServiceImpl implements PaymentService {
             // Soustraire le montant des ventes et l'ajouter aux remboursements
             shift.setTotalSales(shift.getTotalSales().subtract(payment.getAmount()));
             shift.setTotalRefunds(shift.getTotalRefunds().add(payment.getAmount()));
-            shift.calculateBalances();
+           // shift.getActualBalance();
             shiftReportRepository.save(shift);
         }
 
         // Mettre à jour le statut de la commande
         Order order = payment.getOrder();
         order.removePayment(payment);
-        order.setPaymentStatus(order.getComputedPaymentStatus());
+        //order.setPaymentStatus(order.getComputedPaymentStatus());
+        order.setPaymentStatus(order.getPaymentStatus());
         orderRepository.save(order);
 
         log.info("Paiement {} annulé pour commande {}", paymentId, order.getOrderNumber());

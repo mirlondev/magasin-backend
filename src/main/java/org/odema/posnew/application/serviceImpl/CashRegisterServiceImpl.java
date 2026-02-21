@@ -1,14 +1,16 @@
-package org.odema.posnew.application.service.impl;
-
+package org.odema.posnew.application.serviceImpl;
 import lombok.RequiredArgsConstructor;
-import org.odema.posnew.application.dto.request.CashRegisterRequest;
-import org.odema.posnew.application.dto.response.CashRegisterResponse;
-import org.odema.posnew.api.exception.BadRequestException;
+import org.odema.posnew.api.exception.BusinessException;
 import org.odema.posnew.api.exception.NotFoundException;
+import org.odema.posnew.application.dto.CashRegisterResponse;
+import org.odema.posnew.application.dto.request.CashRegisterRequest;
 import org.odema.posnew.application.mapper.CashRegisterMapper;
-import org.odema.posnew.repository.CashRegisterRepository;
-import org.odema.posnew.repository.StoreRepository;
-import org.odema.posnew.application.service.CashRegisterService;
+import org.odema.posnew.domain.model.CashRegister;
+import org.odema.posnew.domain.model.Store;
+import org.odema.posnew.domain.repository.CashRegisterRepository;
+import org.odema.posnew.domain.repository.StoreRepository;
+import org.odema.posnew.domain.service.CashRegisterService;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,13 +23,13 @@ public class CashRegisterServiceImpl implements CashRegisterService {
 
     private final CashRegisterRepository cashRegisterRepository;
     private final StoreRepository storeRepository;
-    private final CashRegisterMapper cashRegisterMapper;
+    private  final CashRegisterMapper cashRegisterMapper;
 
     @Override
     @Transactional
     public CashRegisterResponse createCashRegister(CashRegisterRequest request) {
         if (cashRegisterRepository.existsByRegisterNumber(request.registerNumber())) {
-            throw new BadRequestException("Ce numéro de caisse existe déjà");
+            throw new BusinessException("Ce numéro de caisse existe déjà");
         }
 
         Store store = storeRepository.findById(request.storeId())
@@ -46,6 +48,7 @@ public class CashRegisterServiceImpl implements CashRegisterService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public CashRegisterResponse getCashRegisterById(UUID cashRegisterId) {
         CashRegister register = cashRegisterRepository.findById(cashRegisterId)
                 .orElseThrow(() -> new NotFoundException("Caisse non trouvée"));
@@ -53,6 +56,7 @@ public class CashRegisterServiceImpl implements CashRegisterService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public CashRegisterResponse getCashRegisterByNumber(String registerNumber) {
         CashRegister register = cashRegisterRepository.findByRegisterNumber(registerNumber)
                 .orElseThrow(() -> new NotFoundException("Caisse non trouvée"));
@@ -60,6 +64,7 @@ public class CashRegisterServiceImpl implements CashRegisterService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<CashRegisterResponse> getAllCashRegistersByStore(UUID storeId) {
         return cashRegisterRepository.findByStore_StoreId(storeId).stream()
                 .map(cashRegisterMapper::toResponse)
@@ -67,6 +72,7 @@ public class CashRegisterServiceImpl implements CashRegisterService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<CashRegisterResponse> getActiveCashRegistersByStore(UUID storeId) {
         return cashRegisterRepository.findByStore_StoreIdAndIsActiveTrue(storeId).stream()
                 .map(cashRegisterMapper::toResponse)
@@ -82,7 +88,7 @@ public class CashRegisterServiceImpl implements CashRegisterService {
         // Vérifier l'unicité du numéro si modifié
         if (!register.getRegisterNumber().equals(request.registerNumber()) &&
                 cashRegisterRepository.existsByRegisterNumber(request.registerNumber())) {
-            throw new BadRequestException("Ce numéro de caisse existe déjà");
+            throw new BusinessException("Ce numéro de caisse existe déjà");
         }
 
         register.setRegisterNumber(request.registerNumber());
@@ -104,7 +110,10 @@ public class CashRegisterServiceImpl implements CashRegisterService {
     public void deleteCashRegister(UUID cashRegisterId) {
         CashRegister register = cashRegisterRepository.findById(cashRegisterId)
                 .orElseThrow(() -> new NotFoundException("Caisse non trouvée"));
-        cashRegisterRepository.delete(register);
+
+        // Soft delete
+        register.setIsActive(false);
+        cashRegisterRepository.save(register);
     }
 
     @Override

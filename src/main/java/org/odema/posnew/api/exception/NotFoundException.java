@@ -1,4 +1,4 @@
-package org.odema.posnew.api.rest.exception;
+package org.odema.posnew.api.exception;
 
 public class NotFoundException extends RuntimeException {
 

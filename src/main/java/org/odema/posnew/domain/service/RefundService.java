@@ -1,8 +1,10 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
 import org.odema.posnew.application.dto.request.RefundRequest;
 import org.odema.posnew.application.dto.response.RefundResponse;
-import org.odema.posnew.domain.enums_old.RefundStatus;
+
+import org.odema.posnew.domain.model.enums.RefundStatus;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -43,6 +45,9 @@ public interface RefundService {
      * Liste les remboursements par statut
      */
     List<RefundResponse> getRefundsByStatus(RefundStatus status);
+
+//    @Transactional(readOnly = true)
+//    List<RefundResponse> getRefundsByStatus(RefundStatus status);
 
     /**
      * Liste les remboursements d'une période

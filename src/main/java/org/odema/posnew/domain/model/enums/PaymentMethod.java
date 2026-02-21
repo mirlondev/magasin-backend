@@ -1,5 +1,8 @@
-package org.odema.posnew.domain.enums;
+package org.odema.posnew.domain.model.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum PaymentMethod {
     CASH("Espèces"),
     CREDIT_CARD("Carte bancaire"),
@@ -13,10 +16,6 @@ public enum PaymentMethod {
 
     PaymentMethod(String label) {
         this.label = label;
-    }
-
-    public String getLabel() {
-        return label;
     }
 
     public boolean isImmediatePayment() {

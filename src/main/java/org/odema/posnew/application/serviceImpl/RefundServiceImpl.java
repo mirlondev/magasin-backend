@@ -1,20 +1,21 @@
-package org.odema.posnew.application.service.impl;
+package org.odema.posnew.application.serviceImpl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.odema.posnew.design.builder.DocumentBuilderFactory;
-import org.odema.posnew.design.context.DocumentBuildContext;
-import org.odema.posnew.domain.enums_old.*;
+import org.odema.posnew.api.exception.BadRequestException;
+import org.odema.posnew.api.exception.NotFoundException;
 import org.odema.posnew.application.dto.request.RefundItemRequest;
 import org.odema.posnew.application.dto.request.RefundRequest;
 import org.odema.posnew.application.dto.response.RefundResponse;
-import org.odema.posnew.api.exception.BadRequestException;
-import org.odema.posnew.api.exception.NotFoundException;
 import org.odema.posnew.application.mapper.RefundMapper;
-import org.odema.posnew.repository.*;
-import org.odema.posnew.application.service.DocumentNumberService;
-import org.odema.posnew.application.service.FileStorageService;
-import org.odema.posnew.application.service.RefundService;
+import org.odema.posnew.design.context.DocumentBuildContext;
+import org.odema.posnew.design.factory.DocumentBuilderFactory;
+import org.odema.posnew.domain.model.*;
+import org.odema.posnew.domain.model.enums.*;
+import org.odema.posnew.domain.repository.*;
+import org.odema.posnew.domain.service.DocumentNumberService;
+import org.odema.posnew.domain.service.FileStorageService;
+import org.odema.posnew.domain.service.RefundService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,9 +44,10 @@ public class RefundServiceImpl implements RefundService {
     private final TransactionRepository transactionRepository;
     private final DocumentNumberService documentNumberService;
     private final FileStorageService fileStorageService;
-    private  final  ReceiptRepository receiptRepository;
+    private final ReceiptRepository receiptRepository;
     private final RefundMapper refundMapper;
-   private final DocumentBuilderFactory builderFactory;        // ✅ AJOUTÉ
+    private final DocumentBuilderFactory builderFactory;
+    private final InventoryRepository inventoryRepository;
 
     @Value("${app.file.directories.refunds:refunds}")
     private String refundsDirectory;
@@ -56,24 +58,18 @@ public class RefundServiceImpl implements RefundService {
         log.info("Création remboursement pour commande {} par caissier {}",
                 request.orderId(), cashierId);
 
-        // Validation
         Order order = orderRepository.findById(request.orderId())
                 .orElseThrow(() -> new NotFoundException("Commande non trouvée"));
 
         User cashier = userRepository.findById(cashierId)
                 .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
 
-        // Vérifier que la commande peut être remboursée
         if (order.getStatus() == OrderStatus.CANCELLED) {
             throw new BadRequestException("Impossible de rembourser une commande annulée");
         }
 
-        // Récupérer la session de caisse ouverte
         ShiftReport shift = shiftReportRepository.findOpenShiftByCashier(cashierId)
-                .orElse(null);
-
-        // Créer le remboursement
-        assert shift != null;
+                .orElseThrow(() -> new BadRequestException("Aucune session de caisse ouverte"));
 
         Refund refund = Refund.builder()
                 .refundNumber(documentNumberService.generateRefundNumber())
@@ -91,13 +87,11 @@ public class RefundServiceImpl implements RefundService {
                 .isActive(true)
                 .build();
 
-        // Ajouter les articles
         if (request.items() != null && !request.items().isEmpty()) {
             for (RefundItemRequest itemReq : request.items()) {
                 addRefundItem(refund, itemReq);
             }
         } else {
-            // Remboursement total - tous les articles
             for (OrderItem orderItem : order.getItems()) {
                 RefundItem refundItem = RefundItem.builder()
                         .originalOrderItem(orderItem)
@@ -122,15 +116,13 @@ public class RefundServiceImpl implements RefundService {
     }
 
     private void addRefundItem(Refund refund, RefundItemRequest itemReq) {
-        OrderItem orderItem = orderItemRepository.findById(itemReq.orderItemId())
+        OrderItem orderItem = orderItemRepository.findById(itemReq.originalOrderItemId())
                 .orElseThrow(() -> new NotFoundException("Article de commande non trouvé"));
 
-        // Vérifier la quantité
         if (itemReq.quantity() > orderItem.getQuantity()) {
             throw new BadRequestException("Quantité à rembourser supérieure à la quantité achetée");
         }
 
-        // Vérifier si déjà remboursé
         Integer alreadyRefunded = refundItemRepository.sumQuantityByProductAndCompleted(
                 orderItem.getProduct().getProductId());
         if (alreadyRefunded != null) {
@@ -208,212 +200,6 @@ public class RefundServiceImpl implements RefundService {
     }
 
     @Override
-    @Transactional
-    public RefundResponse approveRefund(UUID refundId, UUID approverId) {
-        Refund refund = refundRepository.findById(refundId)
-                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
-        refund.approveRefund(approverId);
-        Refund saved = refundRepository.save(refund);
-
-        log.info("Remboursement {} approuvé par {}", refund.getRefundNumber(), approverId);
-        return refundMapper.toResponse(saved);
-    }
-
-    @Override
-    @Transactional
-    public RefundResponse processRefund(UUID refundId, UUID processorId) {
-        Refund refund = refundRepository.findById(refundId)
-                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
-        refund.startProcessing(processorId);
-        Refund saved = refundRepository.save(refund);
-
-        log.info("Remboursement {} en cours de traitement par {}",
-                refund.getRefundNumber(), processorId);
-        return refundMapper.toResponse(saved);
-    }
-
-    @Override
-    @Transactional
-    public RefundResponse completeRefund(UUID refundId) {
-        Refund refund = refundRepository.findById(refundId)
-                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
-        refund.completeRefund();
-
-        // Créer la transaction financière
-        createRefundTransaction(refund);
-
-        // Mettre à jour le stock si articles retournés
-        for (RefundItem item : refund.getItems()) {
-            if (item.getIsReturned()) {
-                returnProductToStock(item);
-            }
-        }
-
-        // Mettre à jour le shift report
-        if (refund.getShiftReport() != null) {
-            refund.getShiftReport().addRefund(refund.getTotalRefundAmount());
-        }
-
-        Refund saved = refundRepository.save(refund);
-
-        // Générer le PDF
-        generateRefundPdf(saved.getRefundId());
-
-        log.info("Remboursement {} terminé - Montant: {}",
-                refund.getRefundNumber(), refund.getTotalRefundAmount());
-
-        return refundMapper.toResponse(saved);
-    }
-
-    private void createRefundTransaction(Refund refund) {
-        Transaction transaction = Transaction.builder()
-                .transactionNumber(documentNumberService.generateTransactionNumber())
-                .transactionType(TransactionType.REFUND)
-                .amount(refund.getTotalRefundAmount())
-                .paymentMethod(mapRefundMethodToPaymentMethod(refund.getRefundMethod()))
-                .refund(refund)
-                .cashier(refund.getCashier())
-                .store(refund.getStore())
-                .shiftReport(refund.getShiftReport())
-                .transactionDate(LocalDateTime.now())
-                .description("Remboursement " + refund.getRefundNumber())
-                .isReconciled(false)
-                .isVoided(false)
-                .build();
-
-        transactionRepository.save(transaction);
-    }
-
-    private PaymentMethod mapRefundMethodToPaymentMethod(RefundMethod method) {
-        if (method == null) return PaymentMethod.CASH;
-        return switch (method) {
-            case CREDIT_CARD -> PaymentMethod.CREDIT_CARD;
-            case MOBILE_MONEY -> PaymentMethod.MOBILE_MONEY;
-            case BANK_TRANSFER -> PaymentMethod.BANK_TRANSFER;
-            default -> PaymentMethod.CASH;
-        };
-    }
-
-    private void returnProductToStock(RefundItem item) {
-        Product product = item.getProduct();
-        if (product != null) {
-            int newQuantity = product.getTotalStock() + item.getQuantity();
-            product.setStockInStore(newQuantity);
-
-            productRepository.save(product);
-            log.debug("Stock mis à jour pour {}: +{}", product.getName(), item.getQuantity());
-        }
-    }
-
-    @Override
-    @Transactional
-    public RefundResponse rejectRefund(UUID refundId, String reason) {
-        Refund refund = refundRepository.findById(refundId)
-                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
-        refund.rejectRefund(reason);
-        Refund saved = refundRepository.save(refund);
-
-        log.warn("Remboursement {} rejeté: {}", refund.getRefundNumber(), reason);
-        return refundMapper.toResponse(saved);
-    }
-
-    @Override
-    @Transactional
-    public RefundResponse cancelRefund(UUID refundId, String reason) {
-        Refund refund = refundRepository.findById(refundId)
-                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
-        refund.cancelRefund(reason);
-        Refund saved = refundRepository.save(refund);
-
-        log.warn("Remboursement {} annulé: {}", refund.getRefundNumber(), reason);
-        return refundMapper.toResponse(saved);
-    }
-
-    /*@Override
-    @Transactional
-    public byte[] generateRefundPdf(UUID refundId) {
-        Refund refund = refundRepository.findById(refundId)
-                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
-        try {
-            RefundDocumentBuilder builder = new RefundDocumentBuilder(refund, refund.getOrder())
-                    .withConfig(
-                            "ODEMA POS",
-                            "123 Rue Principale, Pointe-Noire",
-                            "+237 6XX XX XX XX",
-                            "TAX-123456789",
-                            "Merci de votre confiance !"
-                    );
-
-            byte[] pdf = builder
-                    .initialize()
-                    .addHeader()
-                    .addMainInfo()
-                    .addItemsTable()
-                    .addTotals()
-                    .addFooter()
-                    .build();
-
-            // Sauvegarder le PDF
-            String filename = refund.getRefundNumber() + ".pdf";
-            fileStorageService.storeFileFromBytes(pdf, filename, refundsDirectory);
-
-            log.info("PDF remboursement généré: {}", filename);
-            return pdf;
-
-        } catch (Exception e) {
-            log.error("Erreur génération PDF remboursement {}", refundId, e);
-            throw new RuntimeException("Erreur génération PDF", e);
-        }
-    }
-*/
-
-    // ✅ generateRefundPdf() — remplacer le new RefundDocumentBuilder() direct
-    @Override
-    @Transactional
-    public byte[] generateRefundPdf(UUID refundId) {
-        Refund refund = refundRepository.findById(refundId)
-                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
-
-        try {
-            // ✅ Via factory, plus de new RefundDocumentBuilder()
-            DocumentBuildContext ctx = DocumentBuildContext.forRefund(
-                    refund.getOrder(), refund
-            );
-
-            byte[] pdf = builderFactory.createBuilder(DocumentType.REFUND, ctx)
-                    .initialize()
-                    .addHeader()
-                    .addMainInfo()
-                    .addItemsTable()
-                    .addTotals()
-                    .addFooter()
-                    .build();
-
-            String filename = refund.getRefundNumber() + ".pdf";
-            fileStorageService.storeFileFromBytes(pdf, filename, refundsDirectory);
-
-            log.info("PDF remboursement généré: {}", filename);
-            return pdf;
-
-        } catch (Exception e) {
-            log.error("Erreur génération PDF remboursement {}", refundId, e);
-            throw new RuntimeException("Erreur génération PDF", e);
-        }
-    }
-
-    @Override
-    @Transactional
-    public byte[] regenerateRefundPdf(UUID refundId) {
-        return generateRefundPdf(refundId);
-    }
-
-    @Override
     @Transactional(readOnly = true)
     public BigDecimal getTotalRefundsByPeriod(UUID storeId, LocalDate startDate, LocalDate endDate) {
         LocalDateTime start = startDate.atStartOfDay();
@@ -447,5 +233,175 @@ public class RefundServiceImpl implements RefundService {
                 .orElseThrow(() -> new NotFoundException(
                         "Aucun remboursement complété trouvé pour la commande: " + orderId
                 ));
+    }
+
+    @Override
+    @Transactional
+    public RefundResponse approveRefund(UUID refundId, UUID approverId) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
+
+        refund.approve(approverId);
+        Refund saved = refundRepository.save(refund);
+
+        log.info("Remboursement {} approuvé par {}", refund.getRefundNumber(), approverId);
+        return refundMapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public RefundResponse processRefund(UUID refundId, UUID processorId) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
+
+        refund.startProcessing(processorId);
+        return refundMapper.toResponse(refundRepository.save(refund));
+    }
+
+    @Override
+    @Transactional
+    public RefundResponse completeRefund(UUID refundId) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
+
+        refund.complete();
+        createRefundTransaction(refund);
+
+        // ✅ CORRECTION: Utilise la méthode correcte avec storeId
+        for (RefundItem item : refund.getItems()) {
+            if (item.getIsReturned()) {
+                returnProductToStock(item, refund.getStore().getStoreId());
+            }
+        }
+
+        if (refund.getShiftReport() != null) {
+            refund.getShiftReport().addRefund(refund.getTotalRefundAmount());
+        }
+
+        Refund saved = refundRepository.save(refund);
+
+        try {
+            generateRefundPdf(saved.getRefundId());
+        } catch (Exception e) {
+            log.error("PDF non généré pour remboursement {} — régénérer via /api/refunds/{}/pdf",
+                    saved.getRefundNumber(), saved.getRefundId(), e);
+        }
+
+        log.info("Remboursement {} complété - Montant: {}",
+                saved.getRefundNumber(), saved.getTotalRefundAmount());
+
+        return refundMapper.toResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public RefundResponse rejectRefund(UUID refundId, String reason) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
+
+        refund.reject(reason);
+        return refundMapper.toResponse(refundRepository.save(refund));
+    }
+
+    @Override
+    @Transactional
+    public RefundResponse cancelRefund(UUID refundId, String reason) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
+
+        refund.cancel(reason);
+        return refundMapper.toResponse(refundRepository.save(refund));
+    }
+
+    @Override
+    @Transactional
+    public byte[] generateRefundPdf(UUID refundId) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new NotFoundException("Remboursement non trouvé"));
+
+        try {
+            DocumentBuildContext ctx = DocumentBuildContext.forRefund(
+                    refund.getOrder(), refund
+            );
+
+            byte[] pdf = builderFactory.createBuilder(DocumentType.REFUND, ctx)
+                    .initialize()
+                    .addHeader()
+                    .addMainInfo()
+                    .addItemsTable()
+                    .addTotals()
+                    .addFooter()
+                    .build();
+
+            String filename = refund.getRefundNumber() + ".pdf";
+            fileStorageService.storeFileFromBytes(pdf, filename, refundsDirectory);
+
+            log.info("PDF remboursement généré: {}", filename);
+            return pdf;
+
+        } catch (Exception e) {
+            log.error("Erreur génération PDF remboursement {}", refundId, e);
+            throw new RuntimeException("Erreur génération PDF", e);
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] regenerateRefundPdf(UUID refundId) {
+        return generateRefundPdf(refundId);
+    }
+
+    // =========================================================================
+    // MÉTHODES PRIVÉES
+    // =========================================================================
+
+    private void createRefundTransaction(Refund refund) {
+        Transaction transaction = Transaction.builder()
+                .transactionNumber(documentNumberService.generateTransactionNumber())
+                .transactionType(TransactionType.REFUND)
+                .amount(refund.getTotalRefundAmount())
+                .paymentMethod(mapRefundMethodToPaymentMethod(refund.getRefundMethod()))
+                .refund(refund)
+                .cashier(refund.getCashier())
+                .store(refund.getStore())
+                .shiftReport(refund.getShiftReport())
+                .transactionDate(LocalDateTime.now())
+                .description("Remboursement " + refund.getRefundNumber())
+                .isReconciled(false)
+                .isVoided(false)
+                .build();
+
+        transactionRepository.save(transaction);
+    }
+
+    private PaymentMethod mapRefundMethodToPaymentMethod(RefundMethod method) {
+        if (method == null) return PaymentMethod.CASH;
+        return switch (method) {
+            case CREDIT_CARD -> PaymentMethod.CREDIT_CARD;
+            case MOBILE_MONEY -> PaymentMethod.MOBILE_MONEY;
+            case BANK_TRANSFER -> PaymentMethod.BANK_TRANSFER;
+            default -> PaymentMethod.CASH;
+        };
+    }
+
+    // ✅ CORRECTION: Cette méthode met à jour Inventory, pas Product
+    private void returnProductToStock(RefundItem item, UUID storeId) {
+        if (item.getProduct() == null) return;
+
+        inventoryRepository
+                .findByProduct_ProductIdAndStore_StoreId(
+                        item.getProduct().getProductId(), storeId)
+                .ifPresentOrElse(
+                        inv -> {
+                            inv.increaseQuantity(item.getQuantity());
+                            inventoryRepository.save(inv);
+                            log.debug("Stock restauré: {} x{} pour {}",
+                                    item.getQuantity(),
+                                    item.getProduct().getName(),
+                                    storeId);
+                        },
+                        () -> log.warn("Inventaire non trouvé pour produit {} dans store {}",
+                                item.getProduct().getProductId(), storeId)
+                );
     }
 }

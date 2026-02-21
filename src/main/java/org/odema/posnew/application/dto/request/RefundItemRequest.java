@@ -3,33 +3,16 @@ package org.odema.posnew.application.dto.request;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-/**
- * DTO pour un article à rembourser.
- */
 public record RefundItemRequest(
-        UUID orderItemId,
+        UUID originalOrderItemId,
+        UUID productId,
         Integer quantity,
+        BigDecimal refundAmount,
         BigDecimal restockingFee,
         String reason,
+        Boolean isReturned,
         Boolean isExchange,
         UUID exchangeProductId,
         Integer exchangeQuantity
 ) {
-    /**
-     * Constructeur compact avec validation
-     */
-    public RefundItemRequest {
-        if (orderItemId == null) {
-            throw new IllegalArgumentException("L'ID de l'article de commande est obligatoire");
-        }
-        if (quantity == null || quantity <= 0) {
-            throw new IllegalArgumentException("La quantité doit être supérieure à 0");
-        }
-        if (restockingFee == null) {
-            restockingFee = BigDecimal.ZERO;
-        }
-        if (isExchange == null) {
-            isExchange = false;
-        }
-    }
 }

@@ -3,12 +3,12 @@ package org.odema.posnew.design.strategy.impl;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.strategy.SaleStrategy;
 import org.odema.posnew.design.strategy.ValidationResult;
-import org.odema.posnew.dto.request.OrderRequest;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.enums.DocumentType;
-import org.odema.posnew.entity.enums.OrderStatus;
-import org.odema.posnew.entity.enums.OrderType;
-import org.odema.posnew.entity.enums.PaymentStatus;
+import org.odema.posnew.application.dto.request.OrderRequest;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.enums.DocumentType;
+import org.odema.posnew.domain.model.enums.OrderStatus;
+import org.odema.posnew.domain.model.enums.OrderType;
+import org.odema.posnew.domain.model.enums.PaymentStatus;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;

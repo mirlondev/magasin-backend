@@ -3,9 +3,8 @@ package org.odema.posnew.design.event;
 // event/ReceiptGeneratedEvent.java
 
 import lombok.Getter;
-import org.odema.posnew.entity.Invoice;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.Receipt;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.Receipt;
 import org.springframework.context.ApplicationEvent;
 
 @Getter

@@ -1,8 +1,7 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
 import org.odema.posnew.application.dto.response.ReceiptResponse;
-
-import org.odema.posnew.domain.enums_old.ReceiptType;
+import org.odema.posnew.domain.model.enums.ReceiptType;
 
 
 import java.io.IOException;

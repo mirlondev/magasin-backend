@@ -1,12 +1,12 @@
-package org.odema.posnew.application.dto.response;
+package org.odema.posnew.application.dto;
 
-import org.odema.posnew.domain.enums_old.UserRole;
+import org.odema.posnew.domain.model.enums.UserRole;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 public record EmployeeResponse(
-        UUID userId,
+        UUID employeeId,
         String username,
         String email,
         String phone,

@@ -1,4 +1,12 @@
-package org.odema.posnew.application.repository;
+package org.odema.posnew.domain.repository;
+
+import org.odema.posnew.domain.model.Payment;
+import org.odema.posnew.domain.model.enums.PaymentMethod;
+import org.odema.posnew.domain.model.enums.PaymentStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.util.List;

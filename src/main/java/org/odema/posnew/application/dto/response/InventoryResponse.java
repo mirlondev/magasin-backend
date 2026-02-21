@@ -1,6 +1,6 @@
-package org.odema.posnew.application.dto.response;
+package org.odema.posnew.application.dto;
 
-import org.odema.posnew.domain.enums_old.StockStatus;
+import org.odema.posnew.domain.model.enums.StockStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

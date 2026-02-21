@@ -1,4 +1,4 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
 import org.springframework.core.io.Resource;
 import org.springframework.web.multipart.MultipartFile;

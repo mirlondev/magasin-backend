@@ -1,4 +1,4 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
 import org.odema.posnew.application.dto.request.LoginRequest;
 import org.odema.posnew.application.dto.request.RegisterRequest;

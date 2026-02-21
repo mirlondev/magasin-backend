@@ -1,4 +1,4 @@
-package org.odema.posnew.api.rest.exception;
+package org.odema.posnew.api.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

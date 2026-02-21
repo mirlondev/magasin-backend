@@ -3,7 +3,7 @@ package org.odema.posnew.design.builder.impl;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.entity.Order;
+import org.odema.posnew.domain.model.Order;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;

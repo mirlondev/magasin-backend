@@ -1,5 +1,8 @@
-package org.odema.posnew.domain.enums;
+package org.odema.posnew.domain.model.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum OrderStatus {
     PENDING("En attente"),
     CONFIRMED("Confirmé"),
@@ -12,10 +15,6 @@ public enum OrderStatus {
 
     OrderStatus(String label) {
         this.label = label;
-    }
-
-    public String getLabel() {
-        return label;
     }
 
     public boolean canAddPayment() {

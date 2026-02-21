@@ -1,17 +1,19 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.odema.posnew.domain.enums_old.InvoiceType;
-import org.odema.posnew.domain.enums_old.ReceiptType;
-import org.odema.posnew.repository.InvoiceRepository;
-import org.odema.posnew.repository.OrderRepository;
-import org.odema.posnew.repository.ReceiptRepository;
+
+import org.odema.posnew.domain.model.enums.InvoiceType;
+import org.odema.posnew.domain.model.enums.ReceiptType;
+import org.odema.posnew.domain.repository.InvoiceRepository;
+import org.odema.posnew.domain.repository.OrderRepository;
+import org.odema.posnew.domain.repository.ReceiptRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.ByteBuffer;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.UUID;
 import java.util.function.LongFunction;
@@ -40,7 +42,7 @@ public class DocumentNumberService {
 
     private final ReceiptRepository receiptRepository;
     private final InvoiceRepository invoiceRepository;
-    private final OrderRepository   orderRepository;
+    private final OrderRepository orderRepository;
 
     // =========================================================================
     // TICKETS (Receipts)
@@ -107,8 +109,7 @@ public class DocumentNumberService {
      */
     private String getInvoicePrefix( InvoiceType type) {
         return switch (type) {
-            case INVOICE           -> "INV";  // Facture standard
-            case CREDIT_SALE        -> "CS"; //vente a credit
+            case CREDIT_SALE        -> "INV"; //vente a credit
             case PROFORMA          -> "PRO";  // Proforma / Devis
             case CREDIT_NOTE       -> "AV";   // Avoir (Note de crédit)
             case DELIVERY_NOTE     -> "BL";   // Bon de livraison
@@ -208,15 +209,20 @@ public class DocumentNumberService {
     public String generateCreditNoteNumber(InvoiceType type) {
         return getPrefix(type);
     }
+    private LocalDate today     = LocalDate.now();
 
+    //long count = orderRepository.countByCreatedAtDate(today);
+
+    // Dans getPrefix() pour Invoice - CORRIGÉ
     private String getPrefix(InvoiceType type) {
         String    prefix    = getInvoicePrefix(type);
         LocalDate today     = LocalDate.now();
-        String    yearMonth = String.format("%04d%02d", today.getYear(), today.getMonthValue());
+        LocalDateTime start = today.atStartOfDay();
+        LocalDateTime end   = today.plusMonths(1).atStartOfDay();
 
-        long count = invoiceRepository.countByTypeAndYearMonth(
-                type, today.getYear(), today.getMonthValue()
-        );
+        long count = invoiceRepository.countByInvoiceTypeAndCreatedAtBetween(type, start, end);
+
+        String yearMonth = String.format("%04d%02d", today.getYear(), today.getMonthValue());
 
         return resolveUniqueNumber(
                 (seq) -> String.format("%s-%s-%04d", prefix, yearMonth, seq),
@@ -224,7 +230,6 @@ public class DocumentNumberService {
                 count
         );
     }
-
     public String generateProformaNumber(InvoiceType type) {
         return getPrefix(type);
     }
@@ -243,9 +248,10 @@ public class DocumentNumberService {
         String dateStr = String.format("%04d%02d%02d",
                 today.getYear(), today.getMonthValue(), today.getDayOfMonth());
 
-        long count = receiptRepository.countByStoreAndYearMonth(
-                storeId, today.getYear(), today.getMonthValue()
-        );
+        LocalDateTime start = today.atStartOfDay();
+        LocalDateTime end   = today.plusMonths(1).atStartOfDay();
+
+        long count = receiptRepository.countByStore_StoreIdAndCreatedAtBetween(storeId, start, end);
 
         return resolveUniqueNumber(
                 (seq) -> String.format("%s-%s-%s-%04d", prefix, storeCode, dateStr, seq),

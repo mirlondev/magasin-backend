@@ -1,13 +1,15 @@
-package org.odema.posnew.application.service.impl;
+package org.odema.posnew.application.serviceImpl;
 
 import lombok.RequiredArgsConstructor;
-import org.odema.posnew.application.dto.request.CategoryRequest;
-import org.odema.posnew.application.dto.response.CategoryResponse;
-import org.odema.posnew.api.exception.BadRequestException;
+
+import org.odema.posnew.api.exception.BusinessException;
 import org.odema.posnew.api.exception.NotFoundException;
+import org.odema.posnew.application.dto.CategoryRequest;
+import org.odema.posnew.application.dto.CategoryResponse;
 import org.odema.posnew.application.mapper.CategoryMapper;
-import org.odema.posnew.repository.CategoryRepository;
-import org.odema.posnew.application.service.CategoryService;
+import org.odema.posnew.domain.model.Category;
+import org.odema.posnew.domain.repository.CategoryRepository;
+import org.odema.posnew.domain.service.CategoryService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,16 +25,16 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
-    public CategoryResponse createCategory(CategoryRequest request) throws NotFoundException {
+    public CategoryResponse createCategory(CategoryRequest request) {
         // Vérifier l'unicité du nom
         if (request.parentCategoryId() == null) {
             if (categoryRepository.existsByNameAndParentCategoryIsNull(request.name())) {
-                throw new BadRequestException("Une catégorie principale avec ce nom existe déjà");
+                throw new BusinessException("Une catégorie principale avec ce nom existe déjà");
             }
         } else {
             if (categoryRepository.existsByNameAndParentCategory_CategoryId(
                     request.name(), request.parentCategoryId())) {
-                throw new BadRequestException("Une sous-catégorie avec ce nom existe déjà dans cette catégorie");
+                throw new BusinessException("Une sous-catégorie avec ce nom existe déjà dans cette catégorie");
             }
         }
 
@@ -44,7 +46,7 @@ public class CategoryServiceImpl implements CategoryService {
         }
 
         // Créer la catégorie
-        Category category = categoryMapper.toEntity(request);
+        Category category = categoryMapper.toEntity(request, parentCategory);
         category.setParentCategory(parentCategory);
         category.setIsActive(true);
 
@@ -53,7 +55,8 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
-    public CategoryResponse getCategoryById(UUID categoryId) throws NotFoundException {
+    @Transactional(readOnly = true)
+    public CategoryResponse getCategoryById(UUID categoryId) {
         Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new NotFoundException("Catégorie non trouvée"));
 
@@ -62,7 +65,7 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
-    public CategoryResponse updateCategory(UUID categoryId, CategoryRequest request) throws NotFoundException {
+    public CategoryResponse updateCategory(UUID categoryId, CategoryRequest request) {
         Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new NotFoundException("Catégorie non trouvée"));
 
@@ -74,7 +77,7 @@ public class CategoryServiceImpl implements CategoryService {
         // Mettre à jour le parent si spécifié
         if (request.parentCategoryId() != null) {
             if (request.parentCategoryId().equals(categoryId)) {
-                throw new BadRequestException("Une catégorie ne peut pas être son propre parent");
+                throw new BusinessException("Une catégorie ne peut pas être son propre parent");
             }
 
             Category parentCategory = categoryRepository.findById(request.parentCategoryId())
@@ -90,13 +93,13 @@ public class CategoryServiceImpl implements CategoryService {
 
     @Override
     @Transactional
-    public void deleteCategory(UUID categoryId) throws NotFoundException {
+    public void deleteCategory(UUID categoryId) {
         Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new NotFoundException("Catégorie non trouvée"));
 
         // Vérifier si la catégorie a des produits
         if (!category.getProducts().isEmpty()) {
-            throw new BadRequestException(
+            throw new BusinessException(
                     "Impossible de supprimer une catégorie contenant des produits. " +
                             "Veuillez d'abord déplacer ou supprimer les produits."
             );
@@ -116,6 +119,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<CategoryResponse> getAllCategories() {
         return categoryRepository.findAllActiveCategories().stream()
                 .map(categoryMapper::toResponse)
@@ -123,6 +127,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<CategoryResponse> getMainCategories() {
         return categoryRepository.findByParentCategoryIsNull().stream()
                 .map(categoryMapper::toResponse)
@@ -130,6 +135,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<CategoryResponse> getSubCategories(UUID parentId) {
         return categoryRepository.findByParentCategory_CategoryId(parentId).stream()
                 .map(categoryMapper::toResponse)
@@ -137,6 +143,7 @@ public class CategoryServiceImpl implements CategoryService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<CategoryResponse> searchCategories(String keyword) {
         return categoryRepository.searchByName(keyword).stream()
                 .map(categoryMapper::toResponse)

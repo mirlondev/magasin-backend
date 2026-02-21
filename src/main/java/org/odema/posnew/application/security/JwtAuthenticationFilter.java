@@ -1,4 +1,4 @@
-package org.odema.posnew.security;
+package org.odema.posnew.application.security;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

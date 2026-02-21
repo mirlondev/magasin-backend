@@ -1,21 +1,22 @@
-package org.odema.posnew.application.service.impl;
+package org.odema.posnew.application.serviceImpl;
 
 import lombok.RequiredArgsConstructor;
 import org.odema.posnew.application.dto.request.ShiftReportRequest;
 import org.odema.posnew.application.dto.response.ShiftReportDetailResponse;
 import org.odema.posnew.application.dto.response.ShiftReportResponse;
-import org.odema.posnew.domain.enums_old.PaymentMethod;
-import org.odema.posnew.domain.enums_old.PaymentStatus;
-import org.odema.posnew.domain.enums_old.ShiftStatus;
+
 import org.odema.posnew.api.exception.BadRequestException;
 import org.odema.posnew.api.exception.NotFoundException;
 import org.odema.posnew.application.mapper.ShiftReportMapper;
-import org.odema.posnew.repository.CashRegisterRepository;
-import org.odema.posnew.repository.PaymentRepository;
-import org.odema.posnew.repository.ShiftReportRepository;
-import org.odema.posnew.repository.StoreRepository;
-import org.odema.posnew.repository.UserRepository;
-import org.odema.posnew.application.service.ShiftReportService;
+
+import org.odema.posnew.domain.model.*;
+import org.odema.posnew.domain.model.enums.PaymentMethod;
+import org.odema.posnew.domain.model.enums.PaymentStatus;
+import org.odema.posnew.domain.model.enums.ShiftStatus;
+import org.odema.posnew.domain.model.enums.UserRole;
+import org.odema.posnew.domain.repository.*;
+
+import org.odema.posnew.domain.service.ShiftReportService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,6 +42,24 @@ public class ShiftReportServiceImpl implements ShiftReportService {
     @Transactional
     public ShiftReportResponse openShift(ShiftReportRequest request, UUID cashierId) {
         // Vérifier si le caissier a déjà un shift ouvert
+
+        User cashier = userRepository.findById(cashierId)
+                .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
+
+    // ✅ Caissier actif
+            if (!cashier.getActive()) {
+                throw new BadRequestException("Ce compte caissier est désactivé");
+            }
+
+    // ✅ Caissier assigné au bon magasin (sauf ADMIN)
+            if (cashier.getUserRole() != UserRole.ADMIN
+                    && cashier.getAssignedStore() != null
+                    && !cashier.getAssignedStore().getStoreId().equals(request.storeId())) {
+                throw new BadRequestException(
+                        "Ce caissier n'est pas assigné au magasin " + request.storeId());
+            }
+
+
         if (shiftReportRepository.findOpenShiftByCashier(cashierId).isPresent()) {
             throw new BadRequestException("Le caissier a déjà un shift ouvert");
         }
@@ -51,13 +70,12 @@ public class ShiftReportServiceImpl implements ShiftReportService {
             throw new BadRequestException("Cette caisse est déjà ouverte par un autre caissier");
         }
 
-        User cashier = userRepository.findById(cashierId)
-                .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
 
         Store store = storeRepository.findById(request.storeId())
                 .orElseThrow(() -> new NotFoundException("Store non trouvé"));
 
         // Récupérer et valider la caisse
+        assert request.cashRegisterId() != null;
         CashRegister cashRegister = cashRegisterRepository.findById(request.cashRegisterId())
                 .orElseThrow(() -> new NotFoundException("Caisse non trouvée"));
 
@@ -100,57 +118,7 @@ public class ShiftReportServiceImpl implements ShiftReportService {
         return shiftReportMapper.toResponse(savedShift);
     }
 
-    @Override
-    @Transactional
-    public ShiftReportResponse closeShift(UUID shiftReportId, BigDecimal actualBalance, String notes) {
-        ShiftReport shift = shiftReportRepository.findById(shiftReportId)
-                .orElseThrow(() -> new NotFoundException("Shift non trouvé"));
 
-        if (shift.isClosed()) {
-            throw new BadRequestException("Le shift est déjà fermé");
-        }
-
-        // Calculer les totaux à partir des paiements
-        BigDecimal totalSales = calculateTotalSalesFromPayments(shiftReportId);
-        BigDecimal totalRefunds = shift.getTotalRefunds();
-
-        // Calculer le solde attendu
-        BigDecimal expectedBalance = shift.getOpeningBalance()
-                .add(totalSales)
-                .subtract(totalRefunds);
-
-        // Définir le solde de clôture
-        BigDecimal closingBalance = actualBalance != null ? actualBalance : expectedBalance;
-        BigDecimal discrepancy = closingBalance.subtract(expectedBalance);
-
-        // Calculer les totaux par méthode de paiement pour les détails
-        BigDecimal cashTotal = getCashTotal(shiftReportId);
-        BigDecimal mobileTotal = getMobileTotal(shiftReportId);
-        BigDecimal cardTotal = getCardTotal(shiftReportId);
-
-        // Mettre à jour le shift
-        shift.setClosingBalance(closingBalance);
-        shift.setActualBalance(closingBalance);
-        shift.setExpectedBalance(expectedBalance);
-        shift.setDiscrepancy(discrepancy);
-        shift.setTotalSales(totalSales);
-        shift.setNetSales(totalSales.subtract(totalRefunds));
-        shift.setTotalTransactions(countTransactions(shiftReportId));
-
-        // Ajouter les détails de fermeture dans les notes
-        String closureDetails = String.format(
-                "Fermeture - Cash: %s, Mobile: %s, Card: %s, Écart: %s",
-                cashTotal, mobileTotal, cardTotal, discrepancy
-        );
-
-        String existingNotes = shift.getNotes() != null ? shift.getNotes() + "\n" : "";
-        shift.setNotes(existingNotes + closureDetails + (notes != null ? " - Notes: " + notes : ""));
-
-        shift.closeShift();
-
-        ShiftReport updatedShift = shiftReportRepository.save(shift);
-        return shiftReportMapper.toResponse(updatedShift);
-    }
 
     @Override
     public ShiftReportResponse getShiftReportById(UUID shiftReportId) {
@@ -221,13 +189,7 @@ public class ShiftReportServiceImpl implements ShiftReportService {
                 .toList();
     }
 
-    // AJOUTÉ
-    @Override
-    public List<ShiftReportResponse> getOpenShiftsByCashRegister(UUID cashRegisterId) {
-        return shiftReportRepository.findOpenShiftsByStore(cashRegisterId).stream()
-                .map(shiftReportMapper::toResponse)
-                .toList();
-    }
+
 
     @Override
     @Transactional
@@ -414,5 +376,46 @@ public class ShiftReportServiceImpl implements ShiftReportService {
         }
 
         return shiftNumber;
+    }
+
+    @Override
+    @Transactional
+    public ShiftReportResponse closeShift(UUID shiftReportId,
+                                          BigDecimal actualBalance,
+                                          String notes) {
+        ShiftReport shift = shiftReportRepository.findById(shiftReportId)
+                .orElseThrow(() -> new NotFoundException("Shift non trouvé"));
+
+        if (shift.isClosed()) {
+            throw new BadRequestException("Le shift est déjà fermé");
+        }
+
+        // ✅ Recalculer totalSales depuis les paiements AVANT la clôture
+        BigDecimal totalSales = calculateTotalSalesFromPayments(shiftReportId);
+        shift.setTotalSales(totalSales);
+        shift.setNetSales(totalSales.subtract(
+                shift.getTotalRefunds() != null ? shift.getTotalRefunds() : BigDecimal.ZERO));
+        shift.setTotalTransactions(countTransactions(shiftReportId));
+
+        if (notes != null) {
+            shift.addNote(notes);
+        }
+
+        // ✅ Déléguer tout le reste au modèle — closeShift(BigDecimal) gère
+        // expectedBalance, closingBalance, discrepancy, status, closingTime
+        shift.closeShift(actualBalance);
+
+        return shiftReportMapper.toResponse(shiftReportRepository.save(shift));
+    }
+
+    @Override
+    public List<ShiftReportResponse> getOpenShiftsByCashRegister(UUID cashRegisterId) {
+        // ✅ méthode correcte — pas findOpenShiftsByStore()
+        return shiftReportRepository
+                .findByCashRegister_CashRegisterId(cashRegisterId)
+                .stream()
+                .filter(s -> s.getStatus() == ShiftStatus.OPEN)
+                .map(shiftReportMapper::toResponse)
+                .toList();
     }
 }

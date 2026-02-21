@@ -2,8 +2,8 @@ package org.odema.posnew.design.context;
 
 import lombok.Builder;
 import lombok.Getter;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.Refund;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.Refund;
 
 @Builder
 @Getter

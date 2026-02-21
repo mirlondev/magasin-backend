@@ -6,17 +6,21 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.odema.posnew.api.exception.BadRequestException;
 import org.odema.posnew.application.dto.request.CreateOrderWithPaymentRequest;
 import org.odema.posnew.application.dto.request.OrderRequest;
 import org.odema.posnew.application.dto.request.PaymentRequest;
 import org.odema.posnew.application.dto.response.ApiResponse;
 import org.odema.posnew.application.dto.response.OrderResponse;
 import org.odema.posnew.application.dto.response.PaginatedResponse;
-import org.odema.posnew.api.rest.exception.UnauthorizedException;
+import org.odema.posnew.api.exception.UnauthorizedException;
+import org.odema.posnew.application.dto.response.ProductResponse;
 import org.odema.posnew.application.security.CustomUserDetails;
-import org.odema.posnew.application.service.OrderService;
+import org.odema.posnew.domain.service.OrderService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -120,13 +124,24 @@ public class OrderController {
     @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN', 'SHOP_MANAGER', 'CASHIER')")
     @Operation(summary = "Obtenir toutes les commandes (paginé)")
     public ResponseEntity<ApiResponse<PaginatedResponse<OrderResponse>>> getAllOrders(
+
             @AuthenticationPrincipal CustomUserDetails userDetails,
-            Pageable pageable) {
+            @PageableDefault(sort = "orderId", direction = Sort.Direction.ASC) Pageable pageable) {
+        if (pageable.getSort().isSorted()) {
+            pageable.getSort().forEach(order -> {
+                if (!List.of("orderNumber", "orderType", "createdAt").contains(order.getProperty())) {
+                    throw new BadRequestException("Champ de tri invalide : " + order.getProperty());
+                }
+            });
+        }
+
 
         UUID userId = userDetails.getUserId();
         Page<OrderResponse> responses = orderService.getOrders(userId, pageable);
         return ResponseEntity.ok(ApiResponse.success(PaginatedResponse.from(responses)));
     }
+
+
 
     @GetMapping("/store/{storeId}")
     @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN', 'SHOP_MANAGER', 'CASHIER')")
@@ -199,15 +214,15 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.success(responses));
     }
 
-    @GetMapping("/cashier/{cashierId}/shift/{shiftId}")
-    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','SHOP_MANAGER') or #cashierId == authentication.principal.userId")
-    @Operation(summary = "Obtenir les commandes d'un caissier durant un shift")
-    public ResponseEntity<ApiResponse<List<OrderResponse>>> getCashierOrdersByShift(
-            @PathVariable UUID cashierId,
-            @PathVariable UUID shiftId) {
-        List<OrderResponse> responses = orderService.findCashierOrdersByShift(cashierId, shiftId);
-        return ResponseEntity.ok(ApiResponse.success(responses));
-    }
+//    @GetMapping("/cashier/{cashierId}/shift/{shiftId}")
+//    @PreAuthorize("hasAnyRole('ADMIN','STORE_ADMIN','SHOP_MANAGER') or #cashierId == authentication.principal.userId")
+//    @Operation(summary = "Obtenir les commandes d'un caissier durant un shift")
+//    public ResponseEntity<ApiResponse<List<OrderResponse>>> getCashierOrdersByShift(
+//            @PathVariable UUID cashierId,
+//            @PathVariable UUID shiftId) {
+//        List<OrderResponse> responses = orderService.findCashierOrdersByShift(cashierId, shiftId);
+//        return ResponseEntity.ok(ApiResponse.success(responses));
+//    }
 
     @GetMapping("/store/{storeId}/sales-total")
     @PreAuthorize("hasAnyRole('ADMIN', 'STORE_ADMIN', 'SHOP_MANAGER')")

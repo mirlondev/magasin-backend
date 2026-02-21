@@ -3,10 +3,10 @@ package org.odema.posnew.design.builder.impl;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.entity.Customer;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.Refund;
-import org.odema.posnew.entity.RefundItem;
+import org.odema.posnew.domain.model.Customer;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.Refund;
+import org.odema.posnew.domain.model.RefundItem;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -227,7 +227,7 @@ public class CreditNoteDocumentBuilder extends AbstractPdfDocumentBuilder {
         BigDecimal totalAmount = refund != null ? refund.getTotalRefundAmount() :
                 (order != null ? order.getTotalAmount() : BigDecimal.ZERO);
 
-        BigDecimal taux = order != null && order.getTaxRate() != null ? order.getTaxRate() : new BigDecimal("18.00");
+        BigDecimal taux = order != null && order.getTaxAmount() != null ? order.getTaxAmount() : new BigDecimal("18.00");
         BigDecimal tva = totalAmount.multiply(taux).divide(new BigDecimal("118"), 2, BigDecimal.ROUND_HALF_UP);
         BigDecimal ht = totalAmount.subtract(tva);
 

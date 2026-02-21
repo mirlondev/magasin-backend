@@ -1,28 +1,33 @@
-package org.odema.posnew.application.service.impl;
+package org.odema.posnew.application.serviceImpl;
 
 import com.itextpdf.text.DocumentException;
 import lombok.extern.slf4j.Slf4j;
 
-import org.odema.posnew.design.builder.DocumentBuilderFactory;
+import org.odema.posnew.application.mapper.ReceiptMapper;
 import org.odema.posnew.design.context.DocumentBuildContext;
 import org.odema.posnew.design.event.ReceiptGeneratedEvent;
+import org.odema.posnew.design.factory.DocumentBuilderFactory;
 import org.odema.posnew.design.factory.DocumentStrategyFactory;
 import org.odema.posnew.design.strategy.DocumentStrategy;
 import org.odema.posnew.design.template.DocumentServiceTemplate;
-import org.odema.posnew.domain.enums_old.DocumentType;
-import org.odema.posnew.domain.enums_old.PaymentMethod;
-import org.odema.posnew.domain.enums_old.ReceiptStatus;
-import org.odema.posnew.domain.enums_old.ReceiptType;
+
 import org.odema.posnew.application.dto.response.ReceiptResponse;
 import org.odema.posnew.api.exception.BadRequestException;
 import org.odema.posnew.api.exception.NotFoundException;
-import org.odema.posnew.application.mapper.ReceiptMapper;
-import org.odema.posnew.repository.OrderRepository;
-import org.odema.posnew.repository.ReceiptRepository;
-import org.odema.posnew.repository.ShiftReportRepository;
-import org.odema.posnew.application.service.DocumentNumberService;
-import org.odema.posnew.application.service.FileStorageService;
-import org.odema.posnew.application.service.ReceiptService;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.Receipt;
+
+import org.odema.posnew.domain.model.ShiftReport;
+import org.odema.posnew.domain.model.enums.DocumentType;
+import org.odema.posnew.domain.model.enums.PaymentMethod;
+import org.odema.posnew.domain.model.enums.ReceiptStatus;
+import org.odema.posnew.domain.model.enums.ReceiptType;
+import org.odema.posnew.domain.repository.OrderRepository;
+import org.odema.posnew.domain.repository.ReceiptRepository;
+import org.odema.posnew.domain.repository.ShiftReportRepository;
+import org.odema.posnew.domain.service.DocumentNumberService;
+import org.odema.posnew.domain.service.FileStorageService;
+import org.odema.posnew.domain.service.ReceiptService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -167,7 +172,7 @@ public class ReceiptServiceImpl
                     receipt.getReceiptNumber(), receipt.getPrintCount());
             return pdfBytes;
 
-        } catch (DocumentException e) {
+        } catch (IOException e) {
             throw new IOException("Erreur génération PDF: " + e.getMessage(), e);
         }
     }
@@ -475,8 +480,8 @@ public class ReceiptServiceImpl
                 .filter(p -> p.getMethod() != PaymentMethod.CREDIT)
                 .map(p -> p.getMethod().name())
                 .findFirst()
-                .orElse(order.getPaymentMethod() != null
-                        ? order.getPaymentMethod().name()
+                .orElse(order.getPrimaryPaymentMethod() != null
+                        ? order.getPrimaryPaymentMethod().getLabel()
                         : null);
 
         return Receipt.builder()
@@ -489,7 +494,7 @@ public class ReceiptServiceImpl
                 .store(order.getStore())
                 .receiptDate(LocalDateTime.now())
                 .totalAmount(order.getTotalAmount())
-                .amountPaid(order.getAmountPaid())
+                .amountPaid(order.getTotalAmount())
                 .changeAmount(order.getChangeAmount())
                 .paymentMethod(paymentMethodStr)
                 .notes(buildReceiptNotes(order, type))
@@ -607,7 +612,7 @@ public class ReceiptServiceImpl
 */
     @Override
     protected byte[] generatePdfDocument(Receipt receipt, DocumentStrategy strategy)
-            throws DocumentException {
+            throws IOException {
 
         if (isShiftReceipt(receipt.getReceiptType())) {
             return builderFactory.createShiftReceiptBuilder(receipt)
@@ -841,10 +846,10 @@ public class ReceiptServiceImpl
                 sb.append(labelValue("TVA",
                         formatAmount(receipt.getOrder().getTaxAmount())));
             }
-            if (receipt.getOrder().getDiscountAmount() != null
-                    && receipt.getOrder().getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
+            if (receipt.getOrder().getGlobalDiscountAmount() != null
+                    && receipt.getOrder().getGlobalDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
                 sb.append(labelValue("Remise",
-                        "-" + formatAmount(receipt.getOrder().getDiscountAmount())));
+                        "-" + formatAmount(receipt.getOrder().getGlobalDiscountAmount())));
             }
         }
 

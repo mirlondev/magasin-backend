@@ -1,5 +1,6 @@
-package org.odema.posnew.application.dto.response;
+package org.odema.posnew.application.dto;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -14,12 +15,15 @@ public record CustomerResponse(
         String city,
         String postalCode,
         String country,
+
         Integer loyaltyPoints,
-        Double totalPurchases,
+        String loyaltyTier,
+        BigDecimal totalPurchases,
         LocalDateTime lastPurchaseDate,
+
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         Boolean isActive,
-        Integer totalOrders
+        Integer orderCount
 ) {
 }

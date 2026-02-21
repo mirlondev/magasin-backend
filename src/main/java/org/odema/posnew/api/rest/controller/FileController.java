@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.odema.posnew.application.dto.response.ApiResponse;
 import org.odema.posnew.application.dto.response.FileUploadResponse;
-import org.odema.posnew.application.service.FileStorageService;
+import org.odema.posnew.domain.service.FileStorageService;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;

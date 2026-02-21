@@ -1,6 +1,8 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
 import org.odema.posnew.api.exception.UnauthorizedException;
+import org.odema.posnew.domain.model.Store;
+import org.odema.posnew.domain.model.User;
 import org.springframework.stereotype.Service;
 
 @Service

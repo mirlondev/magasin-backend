@@ -1,12 +1,14 @@
-package org.odema.posnew.application.service.impl;
+package org.odema.posnew.application.serviceImpl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.api.exception.BadRequestException;
 import org.odema.posnew.api.exception.NotFoundException;
-import org.odema.posnew.repository.ProductRepository;
-import org.odema.posnew.application.service.FileStorageService;
-import org.odema.posnew.application.service.ProductImageService;
+
+import org.odema.posnew.domain.model.Product;
+import org.odema.posnew.domain.repository.ProductRepository;
+import org.odema.posnew.domain.service.FileStorageService;
+import org.odema.posnew.domain.service.ProductImageService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

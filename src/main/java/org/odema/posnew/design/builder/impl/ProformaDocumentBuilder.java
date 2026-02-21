@@ -3,9 +3,9 @@ package org.odema.posnew.design.builder.impl;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.entity.Customer;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.OrderItem;
+import org.odema.posnew.domain.model.Customer;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.OrderItem;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -217,7 +217,7 @@ public class ProformaDocumentBuilder extends AbstractPdfDocumentBuilder {
 
     @Override
     public DocumentBuilder addTotals() {
-        BigDecimal taux = order != null && order.getTaxRate() != null ? order.getTaxRate() : new BigDecimal("18.00");
+        BigDecimal taux = order != null && order.getTaxAmount() != null ? order.getTaxAmount() : new BigDecimal("18.00");
         BigDecimal subtotalHT = order != null ? calcHT(order.getTotalAmount()) : BigDecimal.ZERO;
         BigDecimal tva = subtotalHT.multiply(taux).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         BigDecimal totalTTC = subtotalHT.add(tva);
@@ -247,8 +247,8 @@ public class ProformaDocumentBuilder extends AbstractPdfDocumentBuilder {
 
         html.append(amtRow("Sous-total HT", fmtCur(subtotalHT), ""));
 
-        if (order != null && order.getDiscountAmount() != null && order.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
-            html.append(amtRow("Remise", "-" + fmtCur(order.getDiscountAmount()), "color-red"));
+        if (order != null && order.getGlobalDiscountAmount() != null && order.getGlobalDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
+            html.append(amtRow("Remise", "-" + fmtCur(order.getGlobalDiscountAmount()), "color-red"));
         }
 
         html.append(amtRow("TVA (" + taux + "%)", fmtCur(tva), ""));

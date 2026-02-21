@@ -1,4 +1,4 @@
-package org.odema.posnew.security;
+package org.odema.posnew.application.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;

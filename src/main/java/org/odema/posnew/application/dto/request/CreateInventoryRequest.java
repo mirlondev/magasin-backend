@@ -1,4 +1,8 @@
-package org.odema.posnew.application.dto;
+package org.odema.posnew.application.dto.request;
+
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 
 import java.math.BigDecimal;
 import java.util.UUID;

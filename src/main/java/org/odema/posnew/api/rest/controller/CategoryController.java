@@ -5,11 +5,12 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.odema.posnew.application.dto.request.CategoryRequest;
+
+import org.odema.posnew.api.exception.NotFoundException;
+import org.odema.posnew.application.dto.CategoryRequest;
+import org.odema.posnew.application.dto.CategoryResponse;
 import org.odema.posnew.application.dto.response.ApiResponse;
-import org.odema.posnew.application.dto.response.CategoryResponse;
-import org.odema.posnew.api.rest.exception.NotFoundException;
-import org.odema.posnew.application.service.CategoryService;
+import org.odema.posnew.domain.service.CategoryService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;

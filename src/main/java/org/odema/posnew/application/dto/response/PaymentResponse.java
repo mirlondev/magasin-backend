@@ -1,7 +1,7 @@
 package org.odema.posnew.application.dto.response;
 
-import org.odema.posnew.domain.enums_old.PaymentMethod;
-import org.odema.posnew.domain.enums_old.PaymentStatus;
+import org.odema.posnew.domain.model.enums.PaymentMethod;
+import org.odema.posnew.domain.model.enums.PaymentStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -19,4 +19,5 @@ public record PaymentResponse(
         UUID shiftReportId,
         String notes,
         LocalDateTime createdAt
-) {}
+) {
+}

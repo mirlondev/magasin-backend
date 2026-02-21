@@ -6,8 +6,9 @@ import lombok.RequiredArgsConstructor;
 import org.odema.posnew.application.dto.request.LoginRequest;
 import org.odema.posnew.application.dto.request.RegisterRequest;
 import org.odema.posnew.application.dto.response.LoginResponse;
-import org.odema.posnew.repository.UserRepository;
-import org.odema.posnew.application.service.AuthService;
+
+import org.odema.posnew.domain.repository.UserRepository;
+import org.odema.posnew.domain.service.AuthService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;

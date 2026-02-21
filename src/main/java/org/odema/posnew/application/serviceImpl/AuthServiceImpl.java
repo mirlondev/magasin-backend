@@ -1,14 +1,16 @@
-package org.odema.posnew.application.service.impl;
+package org.odema.posnew.application.serviceImpl;
 
 import lombok.RequiredArgsConstructor;
+import org.odema.posnew.api.exception.BadRequestException;
 import org.odema.posnew.application.dto.request.LoginRequest;
 import org.odema.posnew.application.dto.request.RegisterRequest;
+
 import org.odema.posnew.application.dto.response.LoginResponse;
-import org.odema.posnew.domain.enums_old.UserRole;
-import org.odema.posnew.api.exception.BadRequestException;
-import org.odema.posnew.repository.UserRepository;
 import org.odema.posnew.application.security.JwtTokenProvider;
-import org.odema.posnew.application.service.AuthService;
+import org.odema.posnew.domain.model.User;
+import org.odema.posnew.domain.model.enums.UserRole;
+import org.odema.posnew.domain.repository.UserRepository;
+import org.odema.posnew.domain.service.AuthService;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;

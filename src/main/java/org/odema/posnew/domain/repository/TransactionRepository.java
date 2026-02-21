@@ -1,5 +1,10 @@
 package org.odema.posnew.domain.repository;
 
+import org.odema.posnew.domain.model.Transaction;
+import org.odema.posnew.domain.model.enums.TransactionType;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;

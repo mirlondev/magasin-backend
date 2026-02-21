@@ -29,7 +29,7 @@ public class QRCodeDecorator extends DocumentDecorator {
     }
 
     @Override
-    public byte[] build() throws DocumentException {
+    public byte[] build() {
         byte[] originalPdf = super.build();
 
         try {

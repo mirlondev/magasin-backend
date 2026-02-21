@@ -1,18 +1,17 @@
 package org.odema.posnew.design.facade;
 
-import com.itextpdf.text.DocumentException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.odema.posnew.dto.response.RefundResponse;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.Refund;
-import org.odema.posnew.entity.enums.DocumentType;
-import org.odema.posnew.entity.enums.InvoiceType;
-import org.odema.posnew.entity.enums.ReceiptType;
-import org.odema.posnew.exception.BadRequestException;
-import org.odema.posnew.service.InvoiceService;
-import org.odema.posnew.service.ReceiptService;
-import org.odema.posnew.service.RefundService;
+
+import org.odema.posnew.api.exception.BadRequestException;
+import org.odema.posnew.application.dto.response.RefundResponse;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.enums.DocumentType;
+import org.odema.posnew.domain.model.enums.InvoiceType;
+import org.odema.posnew.domain.model.enums.ReceiptType;
+import org.odema.posnew.domain.service.InvoiceService;
+import org.odema.posnew.domain.service.ReceiptService;
+import org.odema.posnew.domain.service.RefundService;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -43,7 +42,7 @@ public class DocumentGenerationFacade {
 
             // ── Factures ─────────────────────────────────────────
             case INVOICE ->
-                    generateInvoicePdf(order, InvoiceType.INVOICE);
+                    generateInvoicePdf(order, InvoiceType.CREDIT_SALE);
 
             case PROFORMA ->
                     generateInvoicePdf(order, InvoiceType.PROFORMA);
@@ -103,7 +102,6 @@ public class DocumentGenerationFacade {
         log.info("Génération facture type {} pour commande {}", type, orderId);
 
         return switch (type) {
-            case INVOICE           -> getInvoicePdf(orderId);
             case CREDIT_SALE       -> getInvoicePdf(orderId);   // même builder, type différent
             case PROFORMA          -> getProformaPdf(orderId);
             case CREDIT_NOTE       -> getCreditNotePdf(orderId);
@@ -157,7 +155,7 @@ public class DocumentGenerationFacade {
     private byte[] getInvoicePdf(UUID orderId) {
         try {
             return invoiceService.getOrGenerateInvoicePdf(orderId);
-        } catch (IOException | DocumentException e) {
+        } catch (IOException  e) {
             throw new BadRequestException("Erreur récupération facture: " + e.getMessage());
         }
     }
@@ -165,7 +163,7 @@ public class DocumentGenerationFacade {
     private byte[] getProformaPdf(UUID orderId) {
         try {
             return invoiceService.getOrGenerateProformaPdf(orderId);
-        } catch (IOException | DocumentException e) {
+        } catch (IOException  e) {
             throw new BadRequestException("Erreur récupération proforma: " + e.getMessage());
         }
     }
@@ -173,7 +171,7 @@ public class DocumentGenerationFacade {
     private byte[] getCreditNotePdf(UUID orderId) {
         try {
             return invoiceService.getOrGenerateCreditNotePdf(orderId);
-        } catch (IOException | DocumentException e) {
+        } catch (IOException  e) {
             throw new BadRequestException("Erreur récupération avoir: " + e.getMessage());
         }
     }
@@ -181,7 +179,7 @@ public class DocumentGenerationFacade {
     private byte[] getDeliveryNotePdf(UUID orderId) {
         try {
             return invoiceService.getOrGenerateDeliveryNotePdf(orderId);
-        } catch (IOException | DocumentException e) {
+        } catch (IOException  e) {
             throw new BadRequestException("Erreur récupération bon de livraison: " + e.getMessage());
         }
     }
@@ -189,7 +187,7 @@ public class DocumentGenerationFacade {
     private byte[] getPurchaseOrderPdf(UUID orderId) {
         try {
             return invoiceService.getOrGeneratePurchaseOrderPdf(orderId);
-        } catch (IOException | DocumentException e) {
+        } catch (IOException e) {
             throw new BadRequestException("Erreur récupération bon de commande: " + e.getMessage());
         }
     }
@@ -197,7 +195,7 @@ public class DocumentGenerationFacade {
     private byte[] getQuotePdf(UUID orderId) {
         try {
             return invoiceService.getOrGenerateQuotePdf(orderId);
-        } catch (IOException | DocumentException e) {
+        } catch (IOException  e) {
             throw new BadRequestException("Erreur récupération devis: " + e.getMessage());
         }
     }
@@ -205,7 +203,7 @@ public class DocumentGenerationFacade {
     private byte[] getCorrectedInvoicePdf(UUID orderId) {
         try {
             return invoiceService.getOrGenerateCorrectedInvoicePdf(orderId);
-        } catch (IOException | DocumentException e) {
+        } catch (IOException  e) {
             throw new BadRequestException("Erreur récupération facture rectificative: " + e.getMessage());
         }
     }

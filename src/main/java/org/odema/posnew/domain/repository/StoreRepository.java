@@ -1,4 +1,14 @@
-package org.odema.posnew.application.repository;
+package org.odema.posnew.domain.repository;
+
+import org.odema.posnew.domain.model.Store;
+import org.odema.posnew.domain.model.enums.StoreStatus;
+import org.odema.posnew.domain.model.enums.StoreType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;

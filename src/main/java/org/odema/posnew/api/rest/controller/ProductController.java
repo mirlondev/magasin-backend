@@ -5,15 +5,18 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.odema.posnew.api.exception.BadRequestException;
 import org.odema.posnew.application.dto.request.ProductRequest;
 import org.odema.posnew.application.dto.response.ApiResponse;
 import org.odema.posnew.application.dto.response.PaginatedResponse;
 import org.odema.posnew.application.dto.response.ProductResponse;
-import org.odema.posnew.api.rest.exception.NotFoundException;
-import org.odema.posnew.api.rest.exception.UnauthorizedException;
-import org.odema.posnew.application.service.ProductService;
+import org.odema.posnew.api.exception.NotFoundException;
+import org.odema.posnew.api.exception.UnauthorizedException;
+import org.odema.posnew.domain.service.ProductService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -58,9 +61,18 @@ public class ProductController {
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER', 'CASHIER', 'EMPLOYEE')")
     @Operation(summary = "Obtenir tous les produits")
-    public  ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getAllProducts( Pageable pageable) throws UnauthorizedException {
+    public ResponseEntity<ApiResponse<PaginatedResponse<ProductResponse>>> getAllProducts (@PageableDefault(sort = "name", direction = Sort.Direction.ASC)  Pageable pageable) {
+
+        if (pageable.getSort().isSorted()) {
+            pageable.getSort().forEach(order -> {
+                if (!List.of("name", "sku", "barcode", "createdAt").contains(order.getProperty())) {
+                    throw new BadRequestException("Champ de tri invalide : " + order.getProperty());
+                }
+            });
+        }
         Page<ProductResponse> responses = productService.getAllProducts(pageable);
-        return  ResponseEntity.ok(ApiResponse.success(PaginatedResponse.from(responses)));
+        return ResponseEntity.ok(ApiResponse.success(PaginatedResponse.from(responses)));
+
     }
 
     @GetMapping("/category/{categoryId}")

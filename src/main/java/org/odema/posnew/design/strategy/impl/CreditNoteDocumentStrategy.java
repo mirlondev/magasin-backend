@@ -4,11 +4,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.strategy.DocumentStrategy;
 import org.odema.posnew.design.strategy.ValidationResult;
-import org.odema.posnew.entity.Invoice;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.enums.DocumentType;
-import org.odema.posnew.entity.enums.OrderType;
-import org.odema.posnew.service.DocumentNumberService;
+
+import org.odema.posnew.domain.model.Invoice;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.enums.DocumentType;
+import org.odema.posnew.domain.model.enums.OrderType;
+import org.odema.posnew.domain.service.DocumentNumberService;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -50,7 +51,7 @@ public class CreditNoteDocumentStrategy implements DocumentStrategy {
         }
 
         // Vérifier qu'il y a une facture originale
-        if (order.getOriginalOrderId() == null) {
+        if (order.getOrderId() == null) {
             errors.add("Une note de crédit doit être liée à une facture originale");
         }
 

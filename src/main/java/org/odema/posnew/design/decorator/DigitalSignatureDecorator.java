@@ -1,6 +1,6 @@
 package org.odema.posnew.design.decorator;
 
-import com.itextpdf.text.DocumentException;
+
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
 
@@ -22,7 +22,7 @@ public class DigitalSignatureDecorator extends DocumentDecorator {
     }
 
     @Override
-    public byte[] build() throws DocumentException {
+    public byte[] build()  {
         byte[] originalPdf = super.build();
 
         // TODO: Implémenter signature numérique avec certificat

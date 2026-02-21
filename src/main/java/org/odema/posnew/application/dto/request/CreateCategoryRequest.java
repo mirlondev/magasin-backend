@@ -1,6 +1,7 @@
-package org.odema.posnew.application.dto;
+package org.odema.posnew.application.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 import java.util.UUID;
 

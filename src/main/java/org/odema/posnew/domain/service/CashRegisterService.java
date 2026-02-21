@@ -1,7 +1,7 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
+import org.odema.posnew.application.dto.CashRegisterResponse;
 import org.odema.posnew.application.dto.request.CashRegisterRequest;
-import org.odema.posnew.application.dto.response.CashRegisterResponse;
 
 import java.util.List;
 import java.util.UUID;

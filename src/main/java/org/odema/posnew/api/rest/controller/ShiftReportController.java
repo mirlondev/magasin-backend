@@ -10,7 +10,7 @@ import org.odema.posnew.application.dto.response.ApiResponse;
 import org.odema.posnew.application.dto.response.ShiftReportDetailResponse;
 import org.odema.posnew.application.dto.response.ShiftReportResponse;
 import org.odema.posnew.application.security.CustomUserDetails;
-import org.odema.posnew.application.service.ShiftReportService;
+import org.odema.posnew.domain.service.ShiftReportService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;

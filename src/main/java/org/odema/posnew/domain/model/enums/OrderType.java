@@ -1,5 +1,8 @@
-package org.odema.posnew.domain.enums;
+package org.odema.posnew.domain.model.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum OrderType {
     POS_SALE("Vente magasin"),
     CREDIT_SALE("Vente à crédit"),
@@ -12,10 +15,6 @@ public enum OrderType {
 
     OrderType(String label) {
         this.label = label;
-    }
-
-    public String getLabel() {
-        return label;
     }
 
     public boolean requiresImmediatePayment() {

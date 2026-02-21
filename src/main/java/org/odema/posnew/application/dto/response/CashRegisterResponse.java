@@ -1,5 +1,4 @@
-package org.odema.posnew.application.dto.response;
-
+package org.odema.posnew.application.dto;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -14,5 +13,6 @@ public record CashRegisterResponse(
         String location,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
+
 ) {
 }

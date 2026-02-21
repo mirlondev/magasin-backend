@@ -1,8 +1,9 @@
 package org.odema.posnew.config;
 import lombok.RequiredArgsConstructor;
 import org.odema.posnew.design.handler.PaymentHandler;
-import org.odema.posnew.repository.PaymentRepository;
-import org.odema.posnew.repository.ShiftReportRepository;
+
+import org.odema.posnew.domain.repository.PaymentRepository;
+import org.odema.posnew.domain.repository.ShiftReportRepository;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.context.annotation.Bean;

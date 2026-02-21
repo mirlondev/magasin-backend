@@ -1,7 +1,6 @@
 package org.odema.posnew.design.builder;
 
 
-import com.itextpdf.text.*;
 
 public interface DocumentBuilder {
     /**
@@ -37,5 +36,5 @@ public interface DocumentBuilder {
     /**
      * Construit et retourne le document final
      */
-    byte[] build() throws DocumentException;
+    byte[] build();
 }

@@ -1,4 +1,4 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
 import org.odema.posnew.application.dto.request.PaymentRequest;
 import org.odema.posnew.application.dto.response.OrderResponse;
@@ -51,7 +51,7 @@ public interface OrderService {
     List<OrderResponse> getOrdersByStatus(String status);
     List<OrderResponse> getOrdersByDateRange(LocalDateTime startDate, LocalDateTime endDate);
     List<OrderResponse> getRecentOrders(int limit);
-    List<OrderResponse> findCashierOrdersByShift(UUID cashierId, UUID shiftId);
+    //List<OrderResponse> findCashierOrdersByShift(UUID cashierId, UUID shiftId);
 
     // Statistics
     BigDecimal getTotalSalesByStore(UUID storeId, LocalDateTime startDate, LocalDateTime endDate);

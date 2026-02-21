@@ -3,11 +3,12 @@ package org.odema.posnew.design.builder.impl;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.OrderItem;
-import org.odema.posnew.entity.Payment;
-import org.odema.posnew.entity.enums.PaymentMethod;
-import org.odema.posnew.entity.enums.PaymentStatus;
+
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.OrderItem;
+import org.odema.posnew.domain.model.Payment;
+import org.odema.posnew.domain.model.enums.PaymentMethod;
+import org.odema.posnew.domain.model.enums.PaymentStatus;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -135,13 +136,13 @@ public class ReceiptDocumentBuilder extends AbstractPdfDocumentBuilder {
         if (order.getSubtotal() != null)
             html.append(totalRow("Sous-total HT", fmtCur(order.getSubtotal()), ""));
 
-        if (order.getTaxAmount() != null && order.getTaxAmount().compareTo(BigDecimal.ZERO) > 0) {
-            String lbl = "TVA (" + (order.getTaxRate() != null ? order.getTaxRate() : "18") + "%)";
-            html.append(totalRow(lbl, fmtCur(order.getTaxAmount()), ""));
-        }
+//        if (order.getTaxAmount() != null && order.getTaxAmount().compareTo(BigDecimal.ZERO) > 0) {
+//            String lbl = "TVA (" + (order.getTaxRate() != null ? order.getTaxRate() : "18") + "%)";
+//            html.append(totalRow(lbl, fmtCur(order.getTaxAmount()), ""));
+//        }
 
-        if (order.getDiscountAmount() != null && order.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0)
-            html.append(totalRow("Remise", "-" + fmtCur(order.getDiscountAmount()), "color-red"));
+        if (order.getGlobalDiscount() != null && order.getGlobalDiscountAmount().compareTo(BigDecimal.ZERO) > 0)
+            html.append(totalRow("Remise", "-" + fmtCur(order.getGlobalDiscountAmount()), "color-red"));
 
         html.append("<tr class=\"total-sep\"><td colspan=\"2\">&#160;</td></tr>")
                 .append("<tr class=\"total-ttc\">")

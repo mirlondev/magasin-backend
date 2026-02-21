@@ -1,20 +1,19 @@
 package org.odema.posnew.design.template;
 
-import com.itextpdf.text.DocumentException;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.design.builder.DocumentBuilderFactory;
 import org.odema.posnew.design.context.DocumentBuildContext;
+import org.odema.posnew.design.factory.DocumentBuilderFactory;
 import org.odema.posnew.design.factory.DocumentStrategyFactory;
 import org.odema.posnew.design.strategy.DocumentStrategy;
 import org.odema.posnew.design.strategy.ValidationResult;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.enums.DocumentType;
-import org.odema.posnew.exception.BadRequestException;
-import org.odema.posnew.repository.OrderRepository;
-import org.odema.posnew.service.DocumentNumberService;
-import org.odema.posnew.service.FileStorageService;
+import org.odema.posnew.api.exception.BadRequestException;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.enums.DocumentType;
+import org.odema.posnew.domain.repository.OrderRepository;
+import org.odema.posnew.domain.service.DocumentNumberService;
+import org.odema.posnew.domain.service.FileStorageService;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
@@ -44,7 +43,7 @@ public abstract class DocumentServiceTemplate<T, R> {
     // =========================================================================
 
     @Transactional
-    public R generateDocument(UUID orderId) throws IOException, DocumentException {
+    public R generateDocument(UUID orderId) throws IOException {
         log.info("Génération document pour commande {}", orderId);
 
         // 1. Charger la commande
@@ -127,8 +126,7 @@ public abstract class DocumentServiceTemplate<T, R> {
     //   - logique spéciale (ShiftReceipt qui n'a pas de DocumentType mappable)
     // =========================================================================
 
-    protected byte[] generatePdfDocument(T document, DocumentStrategy strategy)
-            throws DocumentException {
+    protected byte[] generatePdfDocument(T document, DocumentStrategy strategy) throws IOException {
 
         // Résoudre le DocumentType depuis la stratégie
         DocumentType docType = strategy.getDocumentType();

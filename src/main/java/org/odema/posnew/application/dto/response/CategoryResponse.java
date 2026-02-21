@@ -1,5 +1,4 @@
-package org.odema.posnew.application.dto.response;
-
+package org.odema.posnew.application.dto;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -17,4 +16,5 @@ public record CategoryResponse(
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         Boolean isActive
-) {}
+) {
+}

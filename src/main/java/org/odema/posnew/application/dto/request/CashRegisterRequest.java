@@ -6,6 +6,7 @@ public record CashRegisterRequest(
         String registerNumber,
         String name,
         UUID storeId,
-        String location
-) {
+        String location,
+        String serialNumber,
+        String model) {
 }

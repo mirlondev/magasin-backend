@@ -1,4 +1,4 @@
-package org.odema.posnew.api.rest.exception;
+package org.odema.posnew.api.exception;
 
 import lombok.*;
 

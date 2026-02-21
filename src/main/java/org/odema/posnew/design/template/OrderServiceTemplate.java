@@ -1,24 +1,24 @@
 package org.odema.posnew.design.template;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
+import org.odema.posnew.api.exception.BadRequestException;
+import org.odema.posnew.api.exception.NotFoundException;
+import org.odema.posnew.application.dto.request.OrderItemRequest;
+import org.odema.posnew.application.dto.request.OrderRequest;
+import org.odema.posnew.application.dto.response.OrderResponse;
+import org.odema.posnew.application.mapper.OrderMapper;
 import org.odema.posnew.design.factory.SaleStrategyFactory;
-import org.odema.posnew.design.strategy.SaleStrategy;
-import org.odema.posnew.design.strategy.ValidationResult;
-import org.odema.posnew.dto.request.OrderRequest;
-import org.odema.posnew.dto.response.OrderResponse;
-import org.odema.posnew.entity.*;
-import org.odema.posnew.entity.enums.OrderStatus;
-import org.odema.posnew.entity.enums.PaymentStatus;
-import org.odema.posnew.exception.BadRequestException;
-
-import org.odema.posnew.exception.NotFoundException;
-import org.odema.posnew.mapper.OrderMapper;
-import org.odema.posnew.repository.*;
-import org.odema.posnew.service.impl.OrderServiceImpl;
+import org.odema.posnew.domain.model.*;
+import org.odema.posnew.domain.model.enums.OrderStatus;
+import org.odema.posnew.domain.model.enums.PaymentStatus;
+import org.odema.posnew.domain.repository.*;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.UUID;
 
@@ -36,207 +36,269 @@ public abstract class OrderServiceTemplate {
     protected final OrderMapper orderMapper;
     protected final SaleStrategyFactory strategyFactory;
 
+    // =========================================================================
+    // TEMPLATE METHOD — squelette commun de création de commande
+    // =========================================================================
+
     /**
-     * TEMPLATE METHOD - Squelette de création de commande
+     * Crée une commande sans paiement.
+     * Les sous-classes peuvent surcharger {@link #afterOrderSaved} pour
+     * ajouter un comportement post-sauvegarde (événements, notifications…).
      */
     @Transactional
     public OrderResponse createOrder(OrderRequest request, UUID cashierId) {
-        log.info("Création commande - Type: {}, Cashier: {}",
-                request.orderType(), cashierId);
+        log.info("Création commande - Type: {}, Caissier: {}", request.orderType(), cashierId);
 
-        // 1. Récupérer la stratégie
-        SaleStrategy strategy = strategyFactory.getStrategy(request.orderType());
+        // 1. Validation de base
+        validateOrderRequest(request);
 
-        // 2. Charger les entités nécessaires
-        User cashier = loadCashier(cashierId);
-        Store store = loadStore(request.storeId());
+        // 2. Charger les entités
+        User    cashier  = loadCashier(cashierId);
+        Store   store    = loadStore(request.storeId());
         Customer customer = loadCustomer(request.customerId());
 
-        // 3. Créer la commande de base
+        // 3. Construire la commande
         Order order = buildBaseOrder(request, cashier, store, customer);
 
-        // 4. Ajouter les articles
+        // 4. Ajouter les articles (stock vérifié + prix snapshottés)
         addOrderItems(order, request);
 
-        // 5. Calculer les totaux
-        order.calculateTotals();
-
-        // 6. Valider selon stratégie
-        ValidationResult validation = strategy.validate(request, order);
-        if (!validation.isValid()) {
-            throw new BadRequestException(
-                    "Validation échouée: " + String.join(", ", validation.getErrors())
-            );
+        // 5. Valider que le total est cohérent
+        //    getTotalAmount() est @Transient — calculé à la volée depuis les items
+        if (order.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BadRequestException("Le montant total doit être supérieur à 0");
         }
 
-        // 7. Préparer selon stratégie
-        strategy.prepareOrder(order, request);
-
-        // 8. Sauvegarder
+        // 6. Sauvegarder
         Order savedOrder = orderRepository.save(order);
 
-        // 9. Hook: Traitement post-création (paiement initial, etc.)
-        savedOrder = afterOrderCreation(savedOrder, request, strategy);
-
-        // 10. Finaliser selon stratégie
-        strategy.finalizeOrder(savedOrder);
-
-        // 11. Sauvegarder état final
-        savedOrder = orderRepository.save(savedOrder);
-
-        // 12. Mettre à jour inventaire
+        // 7. Déduire le stock
         updateInventoryForOrder(savedOrder);
 
-        // 13. Mettre à jour client
-        updateCustomerStatistics(savedOrder);
+        // 8. Mettre à jour les stats client
+       // updateCustomerStatistics(savedOrder);
 
-        log.info("Commande créée avec succès: {}", savedOrder.getOrderNumber());
+        // 9. Hook post-sauvegarde (events, etc.) — surchargeable
+        afterOrderSaved(savedOrder, request);
 
+        log.info("Commande créée: {}, Total: {}", savedOrder.getOrderNumber(), savedOrder.getTotalAmount());
         return orderMapper.toResponse(savedOrder);
     }
 
+    // =========================================================================
+    // HOOK — À surcharger dans les sous-classes si besoin
+    // =========================================================================
+
     /**
-     * Hook method - À surcharger si besoin de traitement spécial
+     * Appelé après la première sauvegarde de la commande.
+     * Comportement par défaut : rien.
+     * Exemple d'override : publier un OrderCreatedEvent, envoyer une notification…
      */
-    protected Order afterOrderCreation(Order order, OrderRequest request,
-                                       SaleStrategy strategy) {
-        // Comportement par défaut: rien
-        // Les sous-classes peuvent surcharger pour ajouter paiement initial, etc.
-        return order;
+    protected void afterOrderSaved(Order savedOrder, OrderRequest request) {
+        // no-op par défaut
     }
 
-    /**
-     * Construire la commande de base
-     */
-    private Order buildBaseOrder(OrderRequest request, User cashier,
-                                 Store store, Customer customer) {
-        String orderNumber = generateOrderNumber();
+    // =========================================================================
+    // CONSTRUCTION DE LA COMMANDE
+    // =========================================================================
 
-        BigDecimal taxRate = request.taxRate() != null
-                ? request.taxRate() : BigDecimal.ZERO;
-        BigDecimal discountAmount = request.discountAmount() != null
-                ? request.discountAmount() : BigDecimal.ZERO;
-        Boolean isTaxable = request.isTaxable() != null
-                ? request.isTaxable() : Boolean.FALSE;
-
+    private Order buildBaseOrder(OrderRequest request, User cashier, Store store, Customer customer) {
         return Order.builder()
-                .orderNumber(orderNumber)
-                .customer(customer)
+                .orderNumber(generateOrderNumber())
                 .cashier(cashier)
                 .store(store)
-                .paymentStatus(PaymentStatus.UNPAID)
+                .customer(customer)
                 .status(OrderStatus.PENDING)
+                .paymentStatus(PaymentStatus.UNPAID)
+                .orderType(request.orderType())
+                // Remise globale — les deux champs existent bien dans Order
+                .globalDiscountPercentage(
+                        request.globalDiscountPercentage() != null
+                                ? request.globalDiscountPercentage()
+                                : BigDecimal.ZERO)
+                .globalDiscountAmount(
+                        request.discountAmount() != null
+                                ? request.discountAmount()
+                                : BigDecimal.ZERO)
                 .notes(request.notes())
-                .isTaxable(isTaxable)
-                .taxRate(taxRate)
-                .discountAmount(discountAmount)
-                .amountPaid(BigDecimal.ZERO)
-                .subtotal(BigDecimal.ZERO)
-                .taxAmount(BigDecimal.ZERO)
-                .totalAmount(BigDecimal.ZERO)
-                .changeAmount(BigDecimal.ZERO)
                 .items(new ArrayList<>())
                 .payments(new ArrayList<>())
                 .build();
     }
 
-    /**
-     * Ajouter les articles à la commande
-     */
+    // =========================================================================
+    // ARTICLES
+    // =========================================================================
+
     private void addOrderItems(Order order, OrderRequest request) {
-        for (var itemRequest : request.items()) {
+        for (OrderItemRequest itemRequest : request.items()) {
+
+            // Charger le produit
             Product product = productRepository.findById(itemRequest.productId())
                     .orElseThrow(() -> new NotFoundException(
-                            "Produit non trouvé: " + itemRequest.productId()
-                    ));
+                            "Produit non trouvé: " + itemRequest.productId()));
 
-            // Vérifier stock
-            validateStock(product, itemRequest.quantity());
+            // Vérifier le stock dans CE magasin via Inventory
+            Inventory inventory = inventoryRepository
+                    .findByProduct_ProductIdAndStore_StoreId(
+                            product.getProductId(),
+                            order.getStore().getStoreId())
+                    .orElseThrow(() -> new BadRequestException(
+                            "Produit non disponible dans ce magasin: " + product.getName()));
 
-            OrderServiceImpl.getDiscountPercentage(order, itemRequest, product);
+            if (inventory.getQuantity() < itemRequest.quantity()) {
+                throw new BadRequestException(String.format(
+                        "Stock insuffisant pour %s. Disponible: %d, Demandé: %d",
+                        product.getName(), inventory.getQuantity(), itemRequest.quantity()));
+            }
+
+            // Récupérer le prix actif du magasin (StoreProductPrice)
+            StoreProductPrice storePrice = product.getPriceForStore(
+                    order.getStore().getStoreId());
+
+            if (storePrice == null) {
+                throw new BadRequestException(
+                        "Aucun prix configuré pour ce produit dans ce magasin: " + product.getName());
+            }
+
+            // Construire l'OrderItem via la factory method du modèle
+            //  → snapshote basePrice, taxRate, discountPercentage/Amount
+            OrderItem item = OrderItem.fromStorePrice(product, storePrice, itemRequest.quantity());
+            item.setOrder(order);
+
+            // Remise spécifique à l'article si précisée dans la requête
+            if (itemRequest.discountPercentage() != null) {
+                item.setDiscountPercentage(itemRequest.discountPercentage());
+            }
+            if (itemRequest.notes() != null) {
+                item.setNotes(itemRequest.notes());
+            }
+
+            // Déclencher le recalcul (@PrePersist/calculate())
+            item.calculate();
+
+            order.addItem(item);
         }
     }
 
-    /**
-     * Valider le stock disponible
-     */
-    private void validateStock(Product product, Integer requestedQty) {
-        Integer availableStock = inventoryRepository
-                .findTotalQuantityByProduct(product.getProductId());
+    // =========================================================================
+    // INVENTAIRE
+    // =========================================================================
 
-        if (availableStock == null || availableStock < requestedQty) {
-            throw new BadRequestException(
-                    "Stock insuffisant pour: " + product.getName() +
-                            " (disponible: " + (availableStock != null ? availableStock : 0) +
-                            ", demandé: " + requestedQty + ")"
-            );
-        }
-    }
-
-    /**
-     * Mettre à jour l'inventaire
-     */
-    private void updateInventoryForOrder(Order order) {
+    protected void updateInventoryForOrder(Order order) {
         for (OrderItem item : order.getItems()) {
             inventoryRepository.findByProduct_ProductIdAndStore_StoreId(
                     item.getProduct().getProductId(),
                     order.getStore().getStoreId()
-            ).ifPresent(inventory -> {
-                inventory.decreaseQuantity(item.getQuantity());
-                inventoryRepository.save(inventory);
+            ).ifPresent(inv -> {
+                // Déduire en unités de BASE, pas en unités de commande
+                int baseQty = item.getBaseQuantity() != null
+                        ? item.getBaseQuantity().intValue()
+                        : item.getQuantity();
+                inv.decreaseQuantity(baseQty);
+                inventoryRepository.save(inv);
             });
         }
     }
 
-    /**
-     * Mettre à jour les statistiques client
-     */
-    private void updateCustomerStatistics(Order order) {
-        if (order.getCustomer() != null) {
-            Customer customer = order.getCustomer();
-            customer.addPurchase(order.getTotalAmount().doubleValue());
-            customerRepository.save(customer);
+    protected void restoreInventoryForOrder(Order order) {
+        for (OrderItem item : order.getItems()) {
+            inventoryRepository.findByProduct_ProductIdAndStore_StoreId(
+                    item.getProduct().getProductId(),
+                    order.getStore().getStoreId()
+            ).ifPresent(inv -> {
+                inv.increaseQuantity(item.getQuantity());
+                inventoryRepository.save(inv);
+                log.debug("Stock restauré: {} x {} (produit: {})",
+                        item.getQuantity(), item.getProduct().getName(),
+                        item.getProduct().getProductId());
+            });
         }
     }
 
-    // Méthodes de chargement
-    private User loadCashier(UUID cashierId) {
+    // =========================================================================
+    // STATISTIQUES CLIENT
+    // =========================================================================
+
+   /* private void updateCustomerStatistics(Order order) {
+        if (order.getCustomer() != null) {
+            // markAsCompleted() appelle customer.recordPurchase() — ici on ne fait
+            // la mise à jour que si la commande est déjà complète (ex: vente directe)
+            if (order.getStatus() == OrderStatus.COMPLETED) {
+             //   order.getCustomer().recordPurchase(order.getTotalAmount());
+                order.().recordPurchase(order.getTotalAmount())
+                customerRepository.save(order.getCustomer());
+            }
+        }
+    }*/
+
+    // =========================================================================
+    // VALIDATION
+    // =========================================================================
+
+    protected void validateOrderRequest(OrderRequest request) {
+        if (request.items() == null || request.items().isEmpty()) {
+            throw new BadRequestException("La commande doit contenir au moins un article");
+        }
+        if (request.storeId() == null) {
+            throw new BadRequestException("Le magasin est obligatoire");
+        }
+    }
+    protected String generateOrderNumber() {
+        // ✅ Format: STR{storePrefix}-{yyMMdd}-{séquence 6 chiffres}
+        // Utiliser une séquence DB est la meilleure option, mais en attendant :
+        String date = LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyMMdd"));
+        // UUID tronqué garantit l'unicité même sous forte charge
+        String unique = UUID.randomUUID().toString()
+                .replace("-", "")
+                .substring(0, 8)
+                .toUpperCase();
+        return "ORD-" + date + "-" + unique;
+    }
+    // =========================================================================
+    // CHARGEMENT DES ENTITÉS
+    // =========================================================================
+
+    protected User loadCashier(UUID cashierId) {
         return userRepository.findById(cashierId)
-                .orElseThrow(() -> new NotFoundException("Caissier non trouvé"));
+                .orElseThrow(() -> new NotFoundException("Caissier non trouvé: " + cashierId));
     }
 
-        private Store loadStore(UUID storeId) {
+    protected Store loadStore(UUID storeId) {
         return storeRepository.findById(storeId)
-                .orElseThrow(() -> new NotFoundException("Store non trouvé"));
+                .orElseThrow(() -> new NotFoundException("Magasin non trouvé: " + storeId));
     }
 
-    private Customer loadCustomer(UUID customerId) {
+    protected Customer loadCustomer(UUID customerId) {
         if (customerId == null) return null;
         return customerRepository.findById(customerId)
-                .orElseThrow(() -> new NotFoundException("Client non trouvé"));
+                .orElseThrow(() -> new NotFoundException("Client non trouvé: " + customerId));
     }
 
-    /**
-     * Générer numéro de commande unique
-     */
-    protected String generateOrderNumber() {
-        return getOrderPrefix(orderRepository);
-    }
+    // =========================================================================
+    // GÉNÉRATION DU NUMÉRO DE COMMANDE
+    // =========================================================================
 
-    @NonNull
-    public static String getOrderPrefix(OrderRepository orderRepository) {
-        String prefix = "ORD";
-        String timestamp = String.valueOf(System.currentTimeMillis());
-        String random = String.valueOf((int) (Math.random() * 1000));
+    // Dans OrderServiceTemplate.java — remplacer generateOrderNumber()
 
-        String substring = timestamp.substring(timestamp.length() - 6);
-        String orderNumber = prefix + substring + random;
+// Ajouter dans les dépendances du template :
+// private final AtomicLong orderSequence = new AtomicLong(System.currentTimeMillis());
 
-        while (orderRepository.existsByOrderNumber(orderNumber)) {
-            random = String.valueOf((int) (Math.random() * 1000));
-            orderNumber = prefix + substring + random;
-        }
 
-        return orderNumber;
-    }
+
+//    @NonNull
+//    public static String getOrderPrefix(OrderRepository orderRepository) {
+//        String prefix    = "ORD";
+//        String timestamp = String.valueOf(System.currentTimeMillis());
+//        String suffix    = timestamp.substring(timestamp.length() - 6);
+//        String random    = String.valueOf((int) (Math.random() * 1000));
+//        String number    = prefix + suffix + random;
+//
+//        while (orderRepository.existsByOrderNumber(number)) {
+//            random = String.valueOf((int) (Math.random() * 1000));
+//            number = prefix + suffix + random;
+//        }
+//        return number;
+//    }
 }

@@ -1,4 +1,4 @@
-package org.odema.posnew.domain.enums;
+package org.odema.posnew.domain.model.enums;
 
 public enum ReceiptStatus {
     ACTIVE("Actif"),

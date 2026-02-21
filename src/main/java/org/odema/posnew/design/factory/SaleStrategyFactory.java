@@ -3,8 +3,8 @@ package org.odema.posnew.design.factory;
 
 import lombok.RequiredArgsConstructor;
 import org.odema.posnew.design.strategy.SaleStrategy;
-import org.odema.posnew.entity.enums.OrderType;
-import org.odema.posnew.exception.BadRequestException;
+import org.odema.posnew.api.exception.BadRequestException;
+import org.odema.posnew.domain.model.enums.OrderType;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;

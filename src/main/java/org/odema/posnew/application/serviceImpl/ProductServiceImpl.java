@@ -1,16 +1,20 @@
-package org.odema.posnew.application.service.impl;
+package org.odema.posnew.application.serviceImpl;
 
 import lombok.RequiredArgsConstructor;
-import org.odema.posnew.application.dto.request.ProductRequest;
-import org.odema.posnew.application.dto.response.ProductResponse;
-import org.odema.posnew.domain.enums_old.UserRole;
 import org.odema.posnew.api.exception.BadRequestException;
 import org.odema.posnew.api.exception.NotFoundException;
 import org.odema.posnew.api.exception.UnauthorizedException;
+import org.odema.posnew.application.dto.request.ProductRequest;
+import org.odema.posnew.application.dto.response.ProductResponse;
 import org.odema.posnew.application.mapper.ProductMapper;
-import org.odema.posnew.repository.CategoryRepository;
-import org.odema.posnew.repository.ProductRepository;
-import org.odema.posnew.application.service.ProductService;
+
+import org.odema.posnew.domain.model.Category;
+import org.odema.posnew.domain.model.Product;
+import org.odema.posnew.domain.model.User;
+import org.odema.posnew.domain.model.enums.UserRole;
+import org.odema.posnew.domain.repository.CategoryRepository;
+import org.odema.posnew.domain.repository.ProductRepository;
+import org.odema.posnew.domain.service.ProductService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -50,7 +54,7 @@ public class ProductServiceImpl implements ProductService {
                 .orElseThrow(() -> new NotFoundException("Catégorie non trouvée"));
 
         // Créer le produit
-        Product product = productMapper.toEntity(request, category, null);
+        Product product = productMapper.toEntity(request, category);
         Product savedProduct = productRepository.save(product);
 
         return productMapper.toResponse(savedProduct);
@@ -64,28 +68,7 @@ public class ProductServiceImpl implements ProductService {
         return productMapper.toResponse(product);
     }
 
-    @Override
-    @Transactional
-    public ProductResponse updateProduct(UUID productId, ProductRequest request) throws NotFoundException {
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new NotFoundException("Produit non trouvé"));
 
-        // Mettre à jour les champs
-        if (request.name() != null) product.setName(request.name());
-        if (request.description() != null) product.setDescription(request.description());
-        if (request.price() != null) product.setPrice(request.price());
-        if (request.categoryId() != null) {
-            Category category = categoryRepository.findById(request.categoryId())
-                    .orElseThrow(() -> new NotFoundException("Catégorie non trouvée"));
-            product.setCategory(category);
-        }
-        if (request.imageUrl() != null) product.setImageUrl(request.imageUrl());
-        if (request.sku() != null) product.setSku(request.sku());
-        if (request.barcode() != null) product.setBarcode(request.barcode());
-
-        Product updatedProduct = productRepository.save(product);
-        return productMapper.toResponse(updatedProduct);
-    }
 
     @Override
     @Transactional
@@ -156,22 +139,49 @@ public class ProductServiceImpl implements ProductService {
                 .toList();
     }
 
-    @Override
-    @Transactional
-    public ProductResponse updateStock(UUID productId, Integer quantity, String operation) throws NotFoundException {
-        Product product = productRepository.findById(productId)
-                .orElseThrow(() -> new NotFoundException("Produit non trouvé"));
 
-        // Note: La gestion du stock se fait dans Inventory, pas dans Product
-        // Cette méthode pourrait être supprimée ou modifiée selon votre logique métier
-        Product updatedProduct = productRepository.save(product);
-        return productMapper.toResponse(updatedProduct);
-    }
 
     private boolean hasProductManagementPermission(User user) {
         UserRole role = user.getUserRole();
         return role == UserRole.ADMIN ||
                 role == UserRole.STORE_ADMIN ||
                 role == UserRole.CASHIER;
+    }
+
+
+    @Override
+    @Transactional
+    public ProductResponse updateProduct(UUID productId, ProductRequest request)
+            throws NotFoundException {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new NotFoundException("Produit non trouvé"));
+
+        if (request.name() != null)        product.setName(request.name());
+        if (request.description() != null) product.setDescription(request.description());
+        if (request.categoryId() != null) {
+            Category category = categoryRepository.findById(request.categoryId())
+                    .orElseThrow(() -> new NotFoundException("Catégorie non trouvée"));
+            product.setCategory(category);
+        }
+        if (request.imageUrl() != null)  product.setImageUrl(request.imageUrl());
+        if (request.sku() != null)       product.setSku(request.sku());
+        if (request.barcode() != null)   product.setBarcode(request.barcode());
+
+        // ✅ SUPPRIMÉ : request.price() → n'existe plus dans Product
+        // Le prix se gère via StorePricingService.setProductPrice()
+
+        return productMapper.toResponse(productRepository.save(product));
+    }
+
+    @Override
+    @Transactional
+    public ProductResponse updateStock(UUID productId, Integer quantity, String operation)
+            throws NotFoundException {
+        // ✅ SUPPRIMÉ : logique de stock ici - Product n'a pas de champ stock
+        // Rediriger vers InventoryService
+        throw new BadRequestException(
+                "La mise à jour du stock se fait via InventoryService.updateStock(). " +
+                        "Utilisez /api/inventory/{inventoryId}/stock"
+        );
     }
 }

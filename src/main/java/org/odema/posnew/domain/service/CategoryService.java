@@ -1,9 +1,10 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
 
-import org.odema.posnew.application.dto.request.CategoryRequest;
-import org.odema.posnew.application.dto.response.CategoryResponse;
+
 import org.odema.posnew.api.exception.NotFoundException;
+import org.odema.posnew.application.dto.CategoryRequest;
+import org.odema.posnew.application.dto.CategoryResponse;
 
 import java.util.List;
 import java.util.UUID;

@@ -1,4 +1,8 @@
-package org.odema.posnew.application.repository;
+package org.odema.posnew.domain.repository;
+
+import org.odema.posnew.domain.model.OrderItem;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.UUID;

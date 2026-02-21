@@ -1,7 +1,10 @@
-package org.odema.posnew.domain.enums;
+package org.odema.posnew.domain.model.enums;
+
+import lombok.Getter;
 
 import java.math.BigDecimal;
 
+@Getter
 public enum LoyaltyTier {
     BRONZE("Bronze", BigDecimal.ZERO, BigDecimal.valueOf(500), 1.0),
     SILVER("Argent", BigDecimal.valueOf(0.05), BigDecimal.valueOf(2000), 1.5),
@@ -18,22 +21,6 @@ public enum LoyaltyTier {
         this.discountRate = discountRate;
         this.threshold = threshold;
         this.pointMultiplier = pointMultiplier;
-    }
-
-    public String getLabel() {
-        return label;
-    }
-
-    public BigDecimal getDiscountRate() {
-        return discountRate;
-    }
-
-    public BigDecimal getThreshold() {
-        return threshold;
-    }
-
-    public double getPointMultiplier() {
-        return pointMultiplier;
     }
 
     public static LoyaltyTier fromAmount(BigDecimal amount) {

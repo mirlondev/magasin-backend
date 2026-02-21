@@ -1,28 +1,32 @@
-package org.odema.posnew.application.service.impl;
+package org.odema.posnew.application.serviceImpl;
 
-import com.itextpdf.text.DocumentException;
 import lombok.extern.slf4j.Slf4j;
 
+import org.odema.posnew.application.dto.InvoiceResponse;
+import org.odema.posnew.application.mapper.InvoiceMapper;
 import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.design.builder.DocumentBuilderFactory;
 import org.odema.posnew.design.builder.impl.InvoiceDocumentBuilder;
 import org.odema.posnew.design.context.DocumentBuildContext;
 import org.odema.posnew.design.decorator.QRCodeDecorator;
 import org.odema.posnew.design.decorator.WatermarkDecorator;
 import org.odema.posnew.design.event.InvoiceGeneratedEvent;
+import org.odema.posnew.design.factory.DocumentBuilderFactory;
 import org.odema.posnew.design.factory.DocumentStrategyFactory;
 import org.odema.posnew.design.strategy.DocumentStrategy;
 import org.odema.posnew.design.template.DocumentServiceTemplate;
-import org.odema.posnew.domain.enums_old.*;
-import org.odema.posnew.application.dto.response.InvoiceResponse;
+
 import org.odema.posnew.api.exception.BadRequestException;
 import org.odema.posnew.api.exception.NotFoundException;
-import org.odema.posnew.application.mapper.InvoiceMapper;
-import org.odema.posnew.repository.InvoiceRepository;
-import org.odema.posnew.repository.OrderRepository;
-import org.odema.posnew.application.service.DocumentNumberService;
-import org.odema.posnew.application.service.FileStorageService;
-import org.odema.posnew.application.service.InvoiceService;
+import org.odema.posnew.domain.model.Invoice;
+
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.Payment;
+import org.odema.posnew.domain.model.enums.*;
+import org.odema.posnew.domain.repository.InvoiceRepository;
+import org.odema.posnew.domain.repository.OrderRepository;
+import org.odema.posnew.domain.service.DocumentNumberService;
+import org.odema.posnew.domain.service.FileStorageService;
+import org.odema.posnew.domain.service.InvoiceService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.io.PathResource;
@@ -99,7 +103,7 @@ public class InvoiceServiceImpl
         return DocumentBuildContext.forOrder(invoice.getOrder());
     }
     @Override
-    public byte[] getOrGenerateInvoicePdf(UUID orderId) throws IOException, DocumentException {
+    public byte[] getOrGenerateInvoicePdf(UUID orderId) throws IOException {
         // 1. Check if invoice exists in database
         Invoice invoice = invoiceRepository.findByOrder_OrderId(orderId)
                 .orElseThrow(() -> new NotFoundException(
@@ -152,7 +156,7 @@ public class InvoiceServiceImpl
      * Force regeneration of PDF (for reprint with updated data)
      */
     @Override
-    public byte[] regenerateInvoicePdf(UUID orderId) throws IOException, DocumentException {
+    public byte[] regenerateInvoicePdf(UUID orderId) throws IOException {
         Invoice invoice = invoiceRepository.findByOrder_OrderId(orderId)
                 .orElseThrow(() -> new NotFoundException(
                         "Aucune facture trouvée pour la commande: " + orderId
@@ -216,7 +220,7 @@ public class InvoiceServiceImpl
     // =========================================================================
 
     @Override
-    public byte[] generateInvoicePdf(UUID invoiceId) throws IOException, DocumentException {
+    public byte[] generateInvoicePdf(UUID invoiceId) throws IOException {
         Invoice invoice = loadDocument(invoiceId);
 
         // Check disk first
@@ -545,9 +549,12 @@ public class InvoiceServiceImpl
                 .filter(p -> p.getMethod() != PaymentMethod.CREDIT)
                 .map(p -> p.getMethod().name())
                 .findFirst()
-                .orElse(order.getPaymentMethod() != null
-                        ? order.getPaymentMethod().name()
-                        : null);
+                .orElseGet(() -> {
+                    // ✅ getPrimaryPaymentMethod() est @Transient dans Order
+                    // order.getPaymentMethod() n'existe pas — c'était un champ fantôme
+                    PaymentMethod primary = order.getPrimaryPaymentMethod();
+                    return primary != null ? primary.name() : null;
+                });
 
         return Invoice.builder()
                 .invoiceNumber(documentNumber)
@@ -561,7 +568,7 @@ public class InvoiceServiceImpl
                 .validityDays(validityDays)
                 .subtotal(order.getSubtotal())
                 .taxAmount(order.getTaxAmount())
-                .discountAmount(order.getDiscountAmount())
+                .discountAmount(order.getGlobalDiscountAmount())
                 .totalAmount(order.getTotalAmount())
                 .amountPaid(totalPaid)
                 .amountDue(order.getTotalAmount()
@@ -593,8 +600,7 @@ public class InvoiceServiceImpl
 //    }
 // InvoiceServiceImpl — surcharge uniquement pour les décorateurs
 @Override
-protected byte[] generatePdfDocument(Invoice invoice, DocumentStrategy strategy)
-        throws DocumentException {
+protected byte[] generatePdfDocument(Invoice invoice, DocumentStrategy strategy) throws  IOException{
 
     DocumentType docType = mapInvoiceTypeToDocumentType(invoice.getInvoiceType());
     DocumentBuildContext ctx = DocumentBuildContext.forOrder(invoice.getOrder());
@@ -731,7 +737,7 @@ protected byte[] generatePdfDocument(Invoice invoice, DocumentStrategy strategy)
     /**
      * Construit le PDF en appliquant les decorators appropriés (Decorator Pattern)
      */
-    private byte[] buildPdfWithDecorators(Invoice invoice) throws DocumentException {
+    private byte[] buildPdfWithDecorators(Invoice invoice) throws IOException {
         DocumentBuilder builder = new InvoiceDocumentBuilder(invoice.getOrder());
 
         // Appliquer watermark si brouillon
@@ -872,32 +878,32 @@ protected byte[] generatePdfDocument(Invoice invoice, DocumentStrategy strategy)
 // =========================================================================
 
     @Override
-    public byte[] getOrGenerateProformaPdf(UUID orderId) throws IOException, DocumentException {
+    public byte[] getOrGenerateProformaPdf(UUID orderId) throws IOException {
         return getOrGenerateByType(orderId, InvoiceType.PROFORMA);
     }
 
     @Override
-    public byte[] getOrGenerateCreditNotePdf(UUID orderId) throws IOException, DocumentException {
+    public byte[] getOrGenerateCreditNotePdf(UUID orderId) throws IOException {
         return getOrGenerateByType(orderId, InvoiceType.CREDIT_NOTE);
     }
 
     @Override
-    public byte[] getOrGenerateDeliveryNotePdf(UUID orderId) throws IOException, DocumentException {
+    public byte[] getOrGenerateDeliveryNotePdf(UUID orderId) throws IOException {
         return getOrGenerateByType(orderId, InvoiceType.DELIVERY_NOTE);
     }
 
     @Override
-    public byte[] getOrGeneratePurchaseOrderPdf(UUID orderId) throws IOException, DocumentException {
+    public byte[] getOrGeneratePurchaseOrderPdf(UUID orderId) throws IOException {
         return getOrGenerateByType(orderId, InvoiceType.PURCHASE_ORDER);
     }
 
     @Override
-    public byte[] getOrGenerateQuotePdf(UUID orderId) throws IOException, DocumentException {
+    public byte[] getOrGenerateQuotePdf(UUID orderId) throws IOException {
         return getOrGenerateByType(orderId, InvoiceType.QUOTE);
     }
 
     @Override
-    public byte[] getOrGenerateCorrectedInvoicePdf(UUID orderId) throws IOException, DocumentException {
+    public byte[] getOrGenerateCorrectedInvoicePdf(UUID orderId) throws IOException {
         return getOrGenerateByType(orderId, InvoiceType.INVOICE_CORRECTED);
     }
 
@@ -906,7 +912,7 @@ protected byte[] generatePdfDocument(Invoice invoice, DocumentStrategy strategy)
      * la génère si elle n'existe pas encore, puis retourne le PDF.
      */
     private byte[] getOrGenerateByType(UUID orderId, InvoiceType type)
-            throws IOException, DocumentException {
+            throws IOException {
 
         // 1. Chercher une facture existante du bon type pour cette commande
         Invoice invoice = invoiceRepository
@@ -944,7 +950,7 @@ protected byte[] generatePdfDocument(Invoice invoice, DocumentStrategy strategy)
 
     private DocumentType mapInvoiceTypeToDocumentType(InvoiceType type) {
         return switch (type) {
-            case INVOICE, CREDIT_SALE, PURCHASE_ORDER, INVOICE_CORRECTED -> DocumentType.INVOICE;
+            case  CREDIT_SALE, PURCHASE_ORDER, INVOICE_CORRECTED -> DocumentType.INVOICE;
             case PROFORMA, QUOTE       -> DocumentType.PROFORMA;
             case CREDIT_NOTE           -> DocumentType.CREDIT_NOTE;
             case DELIVERY_NOTE         -> DocumentType.DELIVERY_NOTE;

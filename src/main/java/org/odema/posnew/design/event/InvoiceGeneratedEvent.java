@@ -1,8 +1,8 @@
 package org.odema.posnew.design.event;
 
 import lombok.Getter;
-import org.odema.posnew.entity.Invoice;
-import org.odema.posnew.entity.Order;
+import org.odema.posnew.domain.model.Invoice;
+import org.odema.posnew.domain.model.Order;
 import org.springframework.context.ApplicationEvent;
 
 @Getter

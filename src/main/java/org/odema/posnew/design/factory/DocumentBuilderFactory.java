@@ -1,17 +1,19 @@
-package org.odema.posnew.design.builder;
+package org.odema.posnew.design.factory;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.odema.posnew.design.builder.DocumentBuilder;
+import org.odema.posnew.design.builder.DocumentBuilderConfig;
 import org.odema.posnew.design.builder.impl.*;
 import org.odema.posnew.design.context.DocumentBuildContext;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.Receipt;
-import org.odema.posnew.entity.Refund;
-import org.odema.posnew.entity.ShiftReport;
-import org.odema.posnew.entity.enums.DocumentType;
-import org.odema.posnew.entity.enums.OrderType;
-import org.odema.posnew.entity.enums.ReceiptType;
-import org.odema.posnew.exception.BadRequestException;
+
+import org.odema.posnew.api.exception.BadRequestException;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.Receipt;
+import org.odema.posnew.domain.model.Refund;
+import org.odema.posnew.domain.model.ShiftReport;
+import org.odema.posnew.domain.model.enums.DocumentType;
+import org.odema.posnew.domain.model.enums.ReceiptType;
 import org.springframework.stereotype.Component;
 
 /**

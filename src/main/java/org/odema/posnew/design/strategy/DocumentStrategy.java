@@ -1,7 +1,8 @@
 package org.odema.posnew.design.strategy;
 
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.enums.DocumentType;
+
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.enums.DocumentType;
 
 /**
  * Interface du pattern Strategy pour la génération de documents.

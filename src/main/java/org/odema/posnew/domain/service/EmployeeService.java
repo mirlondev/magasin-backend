@@ -1,9 +1,9 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
+import org.odema.posnew.application.dto.EmployeeResponse;
 import org.odema.posnew.application.dto.request.EmployeeRequest;
-import org.odema.posnew.application.dto.response.EmployeeResponse;
 import org.odema.posnew.application.dto.request.EmployeeUpdateRequest;
-import org.odema.posnew.domain.enums_old.UserRole;
+import org.odema.posnew.domain.model.enums.UserRole;
 
 import java.util.List;
 import java.util.UUID;

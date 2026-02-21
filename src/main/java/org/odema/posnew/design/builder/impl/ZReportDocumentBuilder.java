@@ -3,7 +3,7 @@ package org.odema.posnew.design.builder.impl;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.entity.ShiftReport;
+import org.odema.posnew.domain.model.ShiftReport;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -219,8 +219,9 @@ public class ZReportDocumentBuilder extends AbstractPdfDocumentBuilder {
                 html.append(finalRow("Solde r&#233;el compt&#233;", shiftReport.getActualBalance(), "actual"));
 
                 // Écart
-                BigDecimal difference = shiftReport.getDifference() != null
-                        ? shiftReport.getDifference() : BigDecimal.ZERO;
+                BigDecimal difference=null;
+//                BigDecimal difference = shiftReport.getDifference() != null
+//                        ? shiftReport.getDifference() : BigDecimal.ZERO;
                 String diffClass = difference.compareTo(BigDecimal.ZERO) > 0 ? "surplus" :
                         (difference.compareTo(BigDecimal.ZERO) < 0 ? "deficit" : "balanced");
                 String diffLabel = difference.compareTo(BigDecimal.ZERO) > 0 ? "Surplus (&#224; justifier)" :

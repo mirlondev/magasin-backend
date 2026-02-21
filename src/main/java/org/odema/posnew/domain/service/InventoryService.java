@@ -1,10 +1,11 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
-import org.odema.posnew.application.dto.request.InventoryRequest;
-import org.odema.posnew.application.dto.request.InventoryTransferRequest;
-import org.odema.posnew.application.dto.request.InventoryUpdateRequest;
-import org.odema.posnew.application.dto.response.InventoryResponse;
-import org.odema.posnew.application.dto.response.InventorySummaryResponse;
+
+import org.odema.posnew.application.dto.*;
+import org.odema.posnew.application.dto.InventoryRequest;
+import org.odema.posnew.application.dto.InventoryResponse;
+import org.odema.posnew.application.dto.InventoryTransferRequest;
+import org.odema.posnew.application.dto.InventoryUpdateRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -59,7 +60,7 @@ public interface InventoryService {
 
     List<InventoryResponse> getInventoryByStatus(String status);
 
-    InventorySummaryResponse getInventorySummary(UUID storeId);
+    org.odema.posnew.application.dto.InventorySummaryResponse getInventorySummary(UUID storeId);
 
    // Page<InventorySummaryResponse> getInventorySummary(UUID storeId, Pageable pageable);
 

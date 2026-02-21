@@ -1,7 +1,6 @@
 package org.odema.posnew.design.decorator;
 
 
-import com.itextpdf.text.DocumentException;
 import org.odema.posnew.design.builder.DocumentBuilder;
 
 /**
@@ -46,7 +45,7 @@ public abstract class DocumentDecorator implements DocumentBuilder {
     }
 
     @Override
-    public byte[] build() throws DocumentException {
+    public byte[] build()  {
         return wrappedBuilder.build();
     }
 }

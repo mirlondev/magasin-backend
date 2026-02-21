@@ -4,12 +4,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-/**
- * DTO de réponse pour un article remboursé.
- */
 public record RefundItemResponse(
         UUID refundItemId,
-        UUID orderItemId,
+        UUID originalOrderItemId,
         UUID productId,
         String productName,
         String productSku,
@@ -17,7 +14,7 @@ public record RefundItemResponse(
         BigDecimal unitPrice,
         BigDecimal refundAmount,
         BigDecimal restockingFee,
-        BigDecimal netAmount,
+        BigDecimal netRefundAmount,
         String reason,
         Boolean isReturned,
         LocalDateTime returnedAt,
@@ -26,16 +23,4 @@ public record RefundItemResponse(
         String exchangeProductName,
         Integer exchangeQuantity
 ) {
-    /**
-     * Constructeur avec calcul du net
-     */
-    public RefundItemResponse {
-        if (refundAmount != null && restockingFee != null) {
-            netAmount = refundAmount.subtract(restockingFee);
-        } else if (refundAmount != null) {
-            netAmount = refundAmount;
-        } else {
-            netAmount = BigDecimal.ZERO;
-        }
-    }
 }

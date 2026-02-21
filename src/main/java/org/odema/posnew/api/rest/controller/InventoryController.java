@@ -5,14 +5,16 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.odema.posnew.application.dto.request.InventoryRequest;
-import org.odema.posnew.application.dto.request.InventoryTransferRequest;
-import org.odema.posnew.application.dto.request.InventoryUpdateRequest;
+
+import org.odema.posnew.application.dto.*;
+import org.odema.posnew.application.dto.InventoryRequest;
+import org.odema.posnew.application.dto.InventoryResponse;
+import org.odema.posnew.application.dto.InventorySummaryResponse;
+import org.odema.posnew.application.dto.InventoryTransferRequest;
+import org.odema.posnew.application.dto.InventoryUpdateRequest;
 import org.odema.posnew.application.dto.response.ApiResponse;
-import org.odema.posnew.application.dto.response.InventoryResponse;
-import org.odema.posnew.application.dto.response.InventorySummaryResponse;
 import org.odema.posnew.application.dto.response.PaginatedResponse;
-import org.odema.posnew.application.service.InventoryService;
+import org.odema.posnew.domain.service.InventoryService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -199,7 +201,7 @@ public class InventoryController {
     @GetMapping("/store/{storeId}/summary")
     @PreAuthorize("hasAnyRole('ADMIN', 'DEPOT_MANAGER', 'SHOP_MANAGER')")
     @Operation(summary = "Obtenir le résumé de l'inventaire d'un store")
-    public ResponseEntity<ApiResponse<InventorySummaryResponse>> getInventorySummary(
+    public ResponseEntity<ApiResponse<org.odema.posnew.application.dto.InventorySummaryResponse>> getInventorySummary(
             @PathVariable UUID storeId) {
         InventorySummaryResponse response = inventoryService.getInventorySummary(storeId);
         return ResponseEntity.ok(ApiResponse.success(response));

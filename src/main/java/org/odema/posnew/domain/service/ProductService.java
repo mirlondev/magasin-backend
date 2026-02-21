@@ -1,12 +1,12 @@
-package org.odema.posnew.application.service;
+package org.odema.posnew.domain.service;
 
 import org.odema.posnew.application.dto.request.ProductRequest;
 import org.odema.posnew.application.dto.response.ProductResponse;
 import org.odema.posnew.api.exception.NotFoundException;
 import org.odema.posnew.api.exception.UnauthorizedException;
+import org.odema.posnew.domain.model.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-
 import java.util.List;
 import java.util.UUID;
 

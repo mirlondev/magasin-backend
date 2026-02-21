@@ -2,13 +2,13 @@ spring:
   application:
     name: pos-new
   datasource:
-    url: jdbc:postgresql://localhost:54322/pos_db
+    url: jdbc:postgresql://localhost:54000/pos_db
     username: postgres
     password: password
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
     show-sql: true
     properties:
       hibernate:

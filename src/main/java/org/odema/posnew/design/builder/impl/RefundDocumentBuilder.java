@@ -3,10 +3,10 @@ package org.odema.posnew.design.builder.impl;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.OrderItem;
-import org.odema.posnew.entity.Refund;
-import org.odema.posnew.entity.RefundItem;
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.Refund;
+import org.odema.posnew.domain.model.RefundItem;
+import org.odema.posnew.domain.model.enums.RefundMethod;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -337,7 +337,7 @@ public class RefundDocumentBuilder extends AbstractPdfDocumentBuilder {
         return String.format("%,.0f FCFA", amount);
     }
 
-    private String fmtRefundMethod(org.odema.posnew.entity.enums.RefundMethod method) {
+    private String fmtRefundMethod(RefundMethod method) {
         if (method == null) return "M&#234;me mode de paiement";
         return switch (method) {
             case CASH -> "Esp&#232;ces";

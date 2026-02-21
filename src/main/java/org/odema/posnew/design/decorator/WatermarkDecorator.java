@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 
 /**
  * Ajoute un watermark au document (BROUILLON, COPIE, etc.)
@@ -26,7 +27,7 @@ public class WatermarkDecorator extends DocumentDecorator {
     }
 
     @Override
-    public byte[] build() throws DocumentException {
+    public byte[] build()  {
         // Construire le document de base
         byte[] originalPdf = super.build();
 

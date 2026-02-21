@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.odema.posnew.application.dto.response.ApiResponse;
 import org.odema.posnew.application.dto.response.ProductImageResponse;
-import org.odema.posnew.application.service.ProductImageService;
+import org.odema.posnew.domain.service.ProductImageService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;

@@ -2,16 +2,17 @@ package org.odema.posnew.design.handler.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.odema.posnew.api.exception.BadRequestException;
+import org.odema.posnew.application.dto.request.PaymentRequest;
 import org.odema.posnew.design.handler.AbstractPaymentHandler;
-import org.odema.posnew.dto.request.PaymentRequest;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.Payment;
-import org.odema.posnew.entity.ShiftReport;
-import org.odema.posnew.entity.enums.PaymentMethod;
-import org.odema.posnew.entity.enums.PaymentStatus;
-import org.odema.posnew.exception.BadRequestException;
-import org.odema.posnew.repository.PaymentRepository;
-import org.odema.posnew.repository.ShiftReportRepository;
+
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.Payment;
+import org.odema.posnew.domain.model.ShiftReport;
+import org.odema.posnew.domain.model.enums.PaymentMethod;
+import org.odema.posnew.domain.model.enums.PaymentStatus;
+import org.odema.posnew.domain.repository.PaymentRepository;
+import org.odema.posnew.domain.repository.ShiftReportRepository;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;

@@ -1,13 +1,10 @@
 package org.odema.posnew.design.builder.impl;
 
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.builder.DocumentBuilder;
-import org.odema.posnew.entity.Receipt;
-import org.odema.posnew.entity.enums.ReceiptType;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
+import org.odema.posnew.domain.model.Receipt;
+import org.odema.posnew.domain.model.enums.ReceiptType;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;

@@ -6,11 +6,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
+import org.odema.posnew.application.dto.EmployeeResponse;
 import org.odema.posnew.application.dto.response.ApiResponse;
 
-import org.odema.posnew.domain.enums_old.UserRole;
 
-import org.odema.posnew.application.service.EmployeeService;
+import org.odema.posnew.domain.model.enums.UserRole;
+import org.odema.posnew.domain.service.EmployeeService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -23,7 +24,6 @@ import java.util.UUID;
 
 import org.odema.posnew.application.dto.request.EmployeeRequest;
 import org.odema.posnew.application.dto.request.EmployeeUpdateRequest;
-import org.odema.posnew.application.dto.response.EmployeeResponse;
 
 
 @RestController

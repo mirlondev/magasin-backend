@@ -4,10 +4,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.design.strategy.DocumentStrategy;
 import org.odema.posnew.design.strategy.ValidationResult;
-import org.odema.posnew.entity.Order;
-import org.odema.posnew.entity.enums.DocumentType;
-import org.odema.posnew.entity.enums.OrderType;
-import org.odema.posnew.service.DocumentNumberService;
+
+import org.odema.posnew.domain.model.Order;
+import org.odema.posnew.domain.model.enums.DocumentType;
+import org.odema.posnew.domain.model.enums.OrderType;
+import org.odema.posnew.domain.service.DocumentNumberService;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -48,9 +49,14 @@ public class RefundDocumentStrategy implements DocumentStrategy {
         }
 
         // Vérifier qu'il y a une commande originale
-        if (order.getOriginalOrderId() == null) {
+
+//        if (order.getOriginalOrderId() == null) {
+//            errors.add("Un remboursement doit être lié à une commande originale");
+//        }
+        if (order.getOrderId() == null) {
             errors.add("Un remboursement doit être lié à une commande originale");
         }
+
 
         return errors.isEmpty()
                 ? ValidationResult.success()

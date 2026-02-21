@@ -1,9 +1,12 @@
-package org.odema.posnew.application.service.impl;
+package org.odema.posnew.application.serviceImpl;
 
-import org.odema.posnew.domain.enums_old.StoreType;
-import org.odema.posnew.domain.enums_old.UserRole;
+
 import org.odema.posnew.api.exception.UnauthorizedException;
-import org.odema.posnew.application.service.PermissionService;
+import org.odema.posnew.domain.model.Store;
+import org.odema.posnew.domain.model.User;
+import org.odema.posnew.domain.model.enums.StoreType;
+import org.odema.posnew.domain.model.enums.UserRole;
+import org.odema.posnew.domain.service.PermissionService;
 import org.springframework.stereotype.Service;
 
 @Service

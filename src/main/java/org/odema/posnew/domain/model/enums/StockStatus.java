@@ -1,4 +1,4 @@
-package org.odema.posnew.domain.enums;
+package org.odema.posnew.domain.model.enums;
 
 public enum StockStatus {
     IN_STOCK("En stock"),

@@ -1,14 +1,15 @@
 package org.odema.posnew.domain.service;
 
-import org.odema.posnew.application.dto.request.SetProductPriceRequest;
-import org.odema.posnew.application.dto.request.TemporaryDiscountRequest;
-import org.odema.posnew.application.dto.request.UpdatePriceRequest;
+import org.odema.posnew.application.dto.request.*;
+import org.odema.posnew.application.dto.response.StoreProductPriceResponse;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
 
 public interface StorePricingService {
 
-    StoreProductPriceResponse setProductPrice(SetProductPriceRequest request);
+    StoreProductPriceResponse setProductPrice(StoreProductPriceRequest request);
 
     StoreProductPriceResponse updatePrice(UUID priceId, UpdatePriceRequest request);
 

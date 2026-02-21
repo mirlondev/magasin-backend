@@ -8,4 +8,5 @@ public record UpdateCategoryRequest(
         String imageUrl,
         UUID parentCategoryId
 ) {
+
 }

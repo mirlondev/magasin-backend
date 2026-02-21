@@ -1,6 +1,6 @@
 package org.odema.posnew.application.dto.response;
 
-import org.odema.posnew.domain.enums_old.ShiftStatus;
+import org.odema.posnew.domain.model.enums.ShiftStatus;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -16,12 +16,12 @@ public record ShiftReportResponse(
         UUID storeId,
         String storeName,
 
-        UUID cashRegisterId,        // AJOUTÉ
-        String cashRegisterNumber,  // AJOUTÉ
-        String cashRegisterName,    // AJOUTÉ
+        UUID cashRegisterId,
+        String cashRegisterNumber,
+        String cashRegisterName,
 
-        LocalDateTime startTime,
-        LocalDateTime endTime,
+        LocalDateTime openingTime,
+        LocalDateTime closingTime,
 
         BigDecimal openingBalance,
         BigDecimal closingBalance,

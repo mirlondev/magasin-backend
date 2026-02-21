@@ -6,8 +6,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.odema.posnew.application.dto.response.ReceiptResponse;
-import org.odema.posnew.domain.enums_old.ReceiptType;
-import org.odema.posnew.application.service.ReceiptService;
+
+import org.odema.posnew.domain.model.enums.ReceiptType;
+import org.odema.posnew.domain.service.ReceiptService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;

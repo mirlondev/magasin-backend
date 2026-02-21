@@ -1,9 +1,8 @@
-package org.odema.posnew;
+package oldcode;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
-import org.odema.posnew.domain.*;
 
 import org.odema.posnew.domain.model.*;
 import org.odema.posnew.domain.model.enums.*;
