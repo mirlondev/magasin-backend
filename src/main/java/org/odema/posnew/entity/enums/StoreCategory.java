@@ -1,5 +1,0 @@
-package org.odema.posnew.entity.enums;
-
-public enum StoreCategory {
-    MAIN,BRANCH
-}
